@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.1.1}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -297,7 +297,7 @@ def search_on_debrid(movie_title, driver):
                 logger.error(f"No matching movie found for {movie_title_cleaned} ({expected_year})")
                 return
         except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"Failed to find or click on the search result: {e}")
+            logger.error(f"Failed to find or click on the search result: {movie_title}")
             return
 
         # Wait for the movie's details page to load by listening for the status message
@@ -376,7 +376,7 @@ def search_on_debrid(movie_title, driver):
 
                 for i, result_box in enumerate(result_boxes, start=1):
                     try:
-                        # Extract the title from the result box to verify the year
+                        # Extract the title from the result box
                         title_element = result_box.find_element(By.XPATH, ".//h2")
                         title_text = title_element.text.strip()
                         logger.info(f"Box {i} title: {title_text}")
@@ -386,6 +386,15 @@ def search_on_debrid(movie_title, driver):
                         if box_year is None:
                             logger.warning(f"Could not extract year from '{title_text}'. Skipping box {i}.")
                             continue
+
+                        # Clean the movie title and handle dots as spaces for comparison
+                        movie_title_cleaned = movie_title.split('(')[0].strip().replace(' ', '.').lower()
+                        title_text_cleaned = re.sub(r'\s+', '.', title_text.split(str(box_year))[0].strip().lower())
+
+                        # Compare the title (allowing dots or spaces) and check if the year matches
+                        if not title_text_cleaned.startswith(movie_title_cleaned):
+                            logger.info(f"Title mismatch for box {i}: {title_text_cleaned} (Expected: {movie_title_cleaned}). Skipping.")
+                            continue  # Skip this box if the title doesn't match
 
                         # Compare the year with the expected year (allow ±1 year)
                         expected_year = extract_year(movie_title)
@@ -423,13 +432,13 @@ def search_on_debrid(movie_title, driver):
 
                             # If the button is now "RD (0%)", undo the click and retry with the next box
                             if "RD (0%)" in rd_button_text:
-                                logger.warning(f"RD (0%) button detected after clicking Instant RD in box {i}. Undoing the click and moving to the next box.")
+                                logger.warning(f"RD (0%) button detected after clicking Instant RD in box {i} {title_text}. Undoing the click and moving to the next box.")
                                 rd_button.click()  # Undo the click by clicking the RD (0%) button
                                 continue  # Move to the next box
 
                             # If it's "RD (100%)", we are done with this entry
                             if "RD (100%)" in rd_button_text:
-                                logger.info(f"RD (100%) button detected. This entry is complete.")
+                                logger.info(f"RD (100%) button detected. {i} {title_text}. This entry is complete.")
                                 break  # Break out of the loop since the task is complete
 
                         except TimeoutException:
@@ -443,6 +452,7 @@ def search_on_debrid(movie_title, driver):
 
             except TimeoutException:
                 logger.warning("Timeout waiting for result boxes to appear.")
+
 
 
         except TimeoutException:
