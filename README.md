@@ -28,8 +28,7 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 
 ## 📊 Flowchart (Rectangle of Life)
 
-![image](https://github.com/user-attachments/assets/e5cfa566-d34c-4303-bcfa-5d2da2c64ecd)
-
+![image](https://github.com/user-attachments/assets/e2ad18f2-be8b-46b8-8b8c-0132a0236aef)
 
 ---
 
