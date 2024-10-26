@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.1.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.1.2}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -15,6 +15,7 @@ import logging
 import sys
 import urllib.parse
 import re
+import inflect
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -238,6 +239,55 @@ def extract_year(text):
         return int(match.group(0))
     return None
 
+# Initialize the inflect engine for number-word conversion
+p = inflect.engine()
+
+def clean_title(title):
+    """
+    Cleans the movie title by removing commas, hyphens, colons, semicolons, and apostrophes,
+    and converting to lowercase. Also replaces multiple spaces with a single space.
+    """
+    # Remove commas, hyphens, colons, semicolons, and apostrophes
+    cleaned_title = re.sub(r"[,:;'-]", '', title)
+    # Replace multiple spaces with a single dot
+    cleaned_title = re.sub(r'\s+', '.', cleaned_title)
+    # Convert to lowercase for comparison
+    return cleaned_title.lower()
+
+def normalize_title(title):
+    """
+    Normalizes the title by ensuring there are no unnecessary spaces or dots,
+    and converts to lowercase (unclean version).
+    """
+    # Replace multiple spaces with a single space and dots with spaces
+    normalized_title = re.sub(r'\s+', ' ', title)
+    normalized_title = normalized_title.replace('.', ' ')
+    # Convert to lowercase
+    return normalized_title.lower()
+
+def replace_numbers_with_words(title):
+    """
+    Replaces digits with their word equivalents (e.g., "3" to "three").
+    """
+    return re.sub(r'\b\d+\b', lambda x: p.number_to_words(x.group()), title)
+
+def replace_words_with_numbers(title):
+    """
+    Replaces number words with their digit equivalents (e.g., "three" to "3").
+    """
+    words_to_numbers = {
+        "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+        "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
+        "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
+        "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17",
+        "eighteen": "18", "nineteen": "19", "twenty": "20"
+        # Add more mappings as needed
+    }
+
+    # Replace word numbers with digits
+    for word, digit in words_to_numbers.items():
+        title = re.sub(rf'\b{word}\b', digit, title, flags=re.IGNORECASE)
+    return title
 
 ### Search Function to Reuse Browser
 def search_on_debrid(movie_title, driver):
@@ -335,29 +385,38 @@ def search_on_debrid(movie_title, driver):
                 logger.warning("'Checking RD availability...' did not disappear within 60 seconds. Proceeding to the next steps.")
 
             # Step 4: Wait for the "Found X available torrents in RD" message
-            status_element = WebDriverWait(driver, 60).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
+            try:
+                status_element = WebDriverWait(driver, 60).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
+                    )
                 )
-            )
 
-            status_text = status_element.text
-            logger.info(f"Status message: {status_text}")
+                status_text = status_element.text
+                logger.info(f"Status message: {status_text}")
+            except TimeoutException:
+                logger.warning("Timeout waiting for the RD status message. Proceeding with the next steps.")
+                status_text = None  # No status message found, but continue
 
             # Step 5: Extract the number of available torrents from the status message (look for the number)
-            torrents_match = re.search(r"Found (\d+) available torrents in RD", status_text)
+            if status_text:
+                torrents_match = re.search(r"Found (\d+) available torrents in RD", status_text)
 
-            if torrents_match:
-                torrents_count = int(torrents_match.group(1))
-                logger.info(f"Found {torrents_count} available torrents in RD.")
-
-                # Step 6: If the status says "0 torrents", check if there's still an Instant RD button
-                if torrents_count == 0:
-                    logger.info("No torrents found in RD according to status, but checking for Instant RD buttons.")
+                if torrents_match:
+                    torrents_count = int(torrents_match.group(1))
+                    logger.info(f"Found {torrents_count} available torrents in RD.")
                 else:
-                    logger.info(f"{torrents_count} torrents found in RD. Proceeding with RD checks.")
+                    logger.warning("Could not find the expected 'Found X available torrents in RD' message. Proceeding to check for Instant RD.")
+                    torrents_count = 0  # Default to 0 torrents if no match found
             else:
-                logger.warning("Could not find the expected 'Found X available torrents in RD' message. Proceeding to check for Instant RD.")
+                logger.warning("No status text available. Proceeding to check for Instant RD.")
+                torrents_count = 0  # Default to 0 torrents if no status text
+
+            # Step 6: If the status says "0 torrents", check if there's still an Instant RD button
+            if torrents_count == 0:
+                logger.info("No torrents found in RD according to status, but checking for Instant RD buttons.")
+            else:
+                logger.info(f"{torrents_count} torrents found in RD. Proceeding with RD checks.")
             
             # Step 7: Check if any red button (RD 100%) exists again before continuing
             try:
@@ -387,14 +446,43 @@ def search_on_debrid(movie_title, driver):
                             logger.warning(f"Could not extract year from '{title_text}'. Skipping box {i}.")
                             continue
 
-                        # Clean the movie title and handle dots as spaces for comparison
-                        movie_title_cleaned = movie_title.split('(')[0].strip().replace(' ', '.').lower()
-                        title_text_cleaned = re.sub(r'\s+', '.', title_text.split(str(box_year))[0].strip().lower())
+                        # Clean both the movie title and the box title for comparison
+                        movie_title_cleaned = clean_title(movie_title.split('(')[0].strip())
+                        title_text_cleaned = clean_title(title_text.split(str(box_year))[0].strip())
 
-                        # Compare the title (allowing dots or spaces) and check if the year matches
-                        if not title_text_cleaned.startswith(movie_title_cleaned):
-                            logger.info(f"Title mismatch for box {i}: {title_text_cleaned} (Expected: {movie_title_cleaned}). Skipping.")
-                            continue  # Skip this box if the title doesn't match
+                        # Normalize both titles for unclean comparison
+                        movie_title_normalized = normalize_title(movie_title.split('(')[0].strip())
+                        title_text_normalized = normalize_title(title_text.split(str(box_year))[0].strip())
+
+                        # Convert digits to words for comparison
+                        movie_title_cleaned_word = replace_numbers_with_words(movie_title_cleaned)
+                        title_text_cleaned_word = replace_numbers_with_words(title_text_cleaned)
+                        movie_title_normalized_word = replace_numbers_with_words(movie_title_normalized)
+                        title_text_normalized_word = replace_numbers_with_words(title_text_normalized)
+
+                        # Convert words to digits for comparison
+                        movie_title_cleaned_digit = replace_words_with_numbers(movie_title_cleaned)
+                        title_text_cleaned_digit = replace_words_with_numbers(title_text_cleaned)
+                        movie_title_normalized_digit = replace_words_with_numbers(movie_title_normalized)
+                        title_text_normalized_digit = replace_words_with_numbers(title_text_normalized)
+
+                        # Log all variations for debugging
+                        logger.info(f"Cleaned movie title: {movie_title_cleaned}, Cleaned box title: {title_text_cleaned}")
+                        logger.info(f"Normalized movie title: {movie_title_normalized}, Normalized box title: {title_text_normalized}")
+                        logger.info(f"Movie title (digits to words): {movie_title_cleaned_word}, Box title (digits to words): {title_text_cleaned_word}")
+                        logger.info(f"Movie title (words to digits): {movie_title_cleaned_digit}, Box title (words to digits): {title_text_cleaned_digit}")
+
+                        # Compare the title in all variations
+                        if not (
+                            title_text_cleaned.startswith(movie_title_cleaned) or
+                            title_text_normalized.startswith(movie_title_normalized) or
+                            title_text_cleaned_word.startswith(movie_title_cleaned_word) or
+                            title_text_normalized_word.startswith(movie_title_normalized_word) or
+                            title_text_cleaned_digit.startswith(movie_title_cleaned_digit) or
+                            title_text_normalized_digit.startswith(movie_title_normalized_digit)
+                        ):
+                            logger.info(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
+                            continue  # Skip this box if none of the variations match
 
                         # Compare the year with the expected year (allow ±1 year)
                         expected_year = extract_year(movie_title)
