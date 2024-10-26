@@ -26,6 +26,13 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 
 ---
 
+## 📊 Flowchart (Rectangle of Life)
+
+![image](https://github.com/user-attachments/assets/e5cfa566-d34c-4303-bcfa-5d2da2c64ecd)
+
+
+---
+
 ## 🔑 Key Features
 
 - **Automated Movie Requests**: Automatically processes movie requests from Discord and fetches torrents from Debrid Media Manager.
@@ -45,6 +52,7 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 | **Overseerr**   | ✅      | Base application Jellyseerr is based on  |
 | **Debrid Media Manager**| ✅      | Torrent fetching automation          |
 | **Real-Debrid**| ✅      | Unrestricted (torrent) downloader       |
+| **SuggestArr**| ✅      | Automatically grab related content and send to Jellyseerr/Overseerr      |
 
 ---
 
