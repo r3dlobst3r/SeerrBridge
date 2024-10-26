@@ -75,9 +75,7 @@ Before you can run this bot, ensure that you have the following prerequisites:
 ### 4. **ChromeDriver**
    - [ChromeDriver](https://developer.chrome.com/docs/chromedriver/downloads) is required to automate browser tasks using Selenium.
      - Ensure that the version of ChromeDriver matches your installed version of Google Chrome.
-     - You can either:
        - Download it manually and provide the path in your `.env` file.
-       - Or let the bot handle it automatically (via `webdriver_manager` library).
 
 ### 5. **Python 3.10.11+**
    - The bot requires **Python 3.10.11** or higher. You can download Python from [here](https://www.python.org/downloads/).
