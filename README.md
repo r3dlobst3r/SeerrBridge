@@ -209,6 +209,17 @@ We welcome contributions! Here’s how you can help:
 
 ---
 
+## 💰 Donations
+
+If you find SeerrBridge useful and would like to support its development, consider making a donation:
+
+- BTC (Bitcoin): `bc1qxjpfszwvy3ty33weu6tjkr394uq30jwkysp4x0`
+- ETH (Ethereum): `0xAF3ADE79B7304784049D200ea50352D1C717d7f2`
+
+Thank you for your support!
+
+---
+
 ## 📄 License
 
 This project is licensed under the [MIT License](https://opensource.org/licenses/MIT).
