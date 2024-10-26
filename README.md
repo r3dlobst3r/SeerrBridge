@@ -55,6 +55,10 @@ Before you can run this bot, ensure that you have the following prerequisites:
 ### 1. **Jellyseerr / Overseerr Notifications**
   - You can follow the Jellyseerr documention on getting [notifications into Discord](https://docs.jellyseerr.dev/using-jellyseerr/notifications/discord).
 
+### Currently, the script is looking for the request coming in as "Movie Request Automatically Approved". Therefore, you should set your user requests to be approved automatically for this to properly function.
+
+![image](https://github.com/user-attachments/assets/e463fefe-750e-4576-b018-a9ad12f95a63)
+
 ### 2. **Real-Debrid Account**
    - You will need a valid [Real-Debrid](https://real-debrid.com/) account to authenticate and interact with the Debrid Media Manager.
      - **Username** and **Password** for your Real-Debrid account will be required for the bot to log in.
