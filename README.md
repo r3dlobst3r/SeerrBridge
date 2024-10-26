@@ -48,6 +48,8 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 
 ---
 
+### (THIS SCRIPT IS STILL IN BETA AND HAS ONLY BEEN PROPERLY TESTED / RUN ON WINDOWS)
+
 ## ⚙ Requirements
 
 Before you can run this bot, ensure that you have the following prerequisites:
