@@ -70,7 +70,13 @@ Before you can run this bot, ensure that you have the following prerequisites:
 
 ### 2. **Real-Debrid Account**
    - You will need a valid [Real-Debrid](https://real-debrid.com/) account to authenticate and interact with the Debrid Media Manager.
-     - **Username** and **Password** for your Real-Debrid account will be required for the bot to log in.
+     - The Debrid Media Manager Accesss token is used and should be set within your .env file. Grab this from your browser via Inspect > 
+
+![image](https://github.com/user-attachments/assets/442247db-1b27-4b32-b737-19c3ccf3b07b)
+
+This is what you want to copy and set in your .env:
+
+    {"value":"your_token","expiry":123}
 
 ### 3. **Discord Bot**
    - Create a Discord bot and invite it to your server:
@@ -111,9 +117,8 @@ Create a `.env` file in the root directory of the project and add the following 
 ```bash
 DISCORD_TOKEN=your-discord-bot-token
 DISCORD_CHANNEL_ID=your-discord-channel-id
-REAL_DEBRID_USERNAME=your-real-debrid-username
-REAL_DEBRID_PASSWORD=your-real-debrid-password
 CHROMEDRIVER_PATH=path-to-chromedriver
+RD_ACCESS_TOKEN={"value":"your_token","expiry":123}
 ```
 
 ---
@@ -173,8 +178,10 @@ If you are not already sending notifications, follow the [JellySeerr documention
 ## 🛤️ Roadmap
 
 - [ ] **Faster Processing**: Implement concurrency to handle multiple requests simultaneously.
-- [ ] **TV Show Support**: Extend functionality to handle TV series and episodes. (COMING SOON)
+- [ ] **TV Show Support**: Extend functionality to handle TV series and episodes.
 - [ ] **Jellyseer/Overseer API Integration**: Direct integration with Jellyseer/Overseer API for smoother automation and control.
+- [ ] **DMM Token**: Ensure access token permanence/refresh
+- [ ] **Title Parsing**: Ensure torrent titles/names are properly matched and handles different languages.
 
 ---
 
