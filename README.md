@@ -55,7 +55,7 @@ Simply put, I was too lazy to set up all of these other applications (arrs) and 
 
 ---
 
-### (THIS SCRIPT IS STILL IN BETA AND HAS ONLY BEEN PROPERLY TESTED / RUN ON WINDOWS)
+### (THIS SCRIPT IS STILL IN BETA)
 
 ## ⚙ Requirements
 
