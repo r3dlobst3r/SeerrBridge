@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2.2}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -7,7 +7,9 @@
 #              /
 # © 2024
 # -----------------------------------------------------------------------------
-import discord
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from pydantic import BaseModel, Field, ValidationError, validator
+from typing import Optional, List, Dict, Any
 import asyncio
 import json
 import time
@@ -16,6 +18,7 @@ import sys
 import urllib.parse
 import re
 import inflect
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -26,10 +29,10 @@ from dotenv import load_dotenv
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from asyncio import Queue
 from datetime import datetime, timedelta
-from discord.ext import tasks
 from deep_translator import GoogleTranslator
 from fuzzywuzzy import fuzz
 from loguru import logger
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
 # Configure loguru
@@ -41,24 +44,27 @@ logger.level("WARNING", color="<cyan>")
 # Load environment variables
 load_dotenv()
 
-TOKEN = os.getenv('DISCORD_TOKEN')
-CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
-try:
-    CHANNEL_ID = int(CHANNEL_ID)
-except ValueError:
-    logger.error("DISCORD_CHANNEL_ID must be an integer.")
-    exit(1)
+# Initialize FastAPI
+app = FastAPI()
 
 # Securely load credentials from environment variables
 RD_ACCESS_TOKEN = os.getenv('RD_ACCESS_TOKEN')
+OVERSEERR_BASE = os.getenv('OVERSEERR_BASE')
+OVERSEERR_API_BASE_URL = f"{OVERSEERR_BASE}/api/v1"
+OVERSEERR_API_KEY = os.getenv('OVERSEERR_API_KEY')
+TRAKT_API_KEY = os.getenv('TRAKT_API_KEY')
 
-# Discord bot intents
-intents = discord.Intents.default()
-intents.messages = True  # Enable message intent
-intents.guilds = True
-intents.message_content = True  # Ensure message content intent is enabled
+if not OVERSEERR_API_BASE_URL:
+    logger.error("OVERSEERR_API_BASE_URL environment variable is not set.")
+    exit(1)
 
-client = discord.Client(intents=intents)
+if not OVERSEERR_API_KEY:
+    logger.error("OVERSEERR_API_KEY environment variable is not set.")
+    exit(1)
+
+if not TRAKT_API_KEY:
+    logger.error("TRAKT_API_KEY environment variable is not set.")
+    exit(1)
 
 # Global driver variable to hold the Selenium WebDriver
 driver = None
@@ -66,6 +72,57 @@ driver = None
 # Initialize a global queue with a maximum size of 500
 request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
+
+class MediaInfo(BaseModel):
+    media_type: str
+    tmdbId: int
+    tvdbId: Optional[int] = None  # Allow tvdbId to be None
+    status: str
+    status4k: str
+
+    @validator('tvdbId', pre=True)
+    def empty_string_to_none(cls, value):
+        if value == '':
+            return None
+        return value
+
+class RequestInfo(BaseModel):
+    request_id: str
+    requestedBy_email: str
+    requestedBy_username: str
+    requestedBy_avatar: str
+    requestedBy_settings_discordId: str
+    requestedBy_settings_telegramChatId: str
+
+class IssueInfo(BaseModel):
+    issue_id: str
+    issue_type: str
+    issue_status: str
+    reportedBy_email: str
+    reportedBy_username: str
+    reportedBy_avatar: str
+    reportedBy_settings_discordId: str
+    reportedBy_settings_telegramChatId: str
+
+class CommentInfo(BaseModel):
+    comment_message: str
+    commentedBy_email: str
+    commentedBy_username: str
+    commentedBy_avatar: str
+    commentedBy_settings_discordId: str
+    commentedBy_settings_telegramChatId: str
+
+class WebhookPayload(BaseModel):
+    notification_type: str
+    event: str
+    subject: str
+    message: Optional[str] = None
+    image: Optional[str] = None
+    media: MediaInfo
+    request: RequestInfo
+    issue: Optional[IssueInfo] = None  # Allow issue to be None
+    comment: Optional[CommentInfo] = None  # Allow comment to be None
+    extra: List[Dict[str, Any]] = []
 
 ### Helper function to handle login
 def login(driver):
@@ -82,6 +139,7 @@ def login(driver):
     except (TimeoutException, NoSuchElementException) as ex:
         logger.error(f"Error during login process: {ex}")
 
+scheduler = AsyncIOScheduler()
 
 ### Browser Initialization and Persistent Session
 async def initialize_browser():
@@ -299,75 +357,148 @@ def replace_words_with_numbers(title):
         title = re.sub(rf'\b{word}\b', digit, title, flags=re.IGNORECASE)
     return title
 
-### Updated Function to Fetch Messages from the Last 30 Days (Newest First)
-async def fetch_last_30_days_messages():
-    logger.info("Fetching messages from the last 30 days...")
-    channel = client.get_channel(CHANNEL_ID)
+
+# Function to fetch media requests from Overseerr
+def get_overseerr_media_requests() -> list[dict]:
+    url = f"{OVERSEERR_API_BASE_URL}/request?take=500&filter=approved&sort=added"
+    headers = {
+        "X-Api-Key": OVERSEERR_API_KEY
+    }
+    response = requests.get(url, headers=headers)
     
-    if not channel:
-        logger.error(f"Channel with ID {CHANNEL_ID} not found.")
+    if response.status_code != 200:
+        logger.error(f"Failed to fetch requests from Overseerr: {response.status_code}")
         return []
     
-    # Calculate the timestamp for 30 days ago
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    data = response.json()
+    logger.info(f"Fetched {len(data.get('results', []))} requests from Overseerr")
     
-    # List to store fetched messages
-    messages = []
+    if not data.get('results'):
+        return []
+    
+    # Filter requests that are in processing state (status 3)
+    processing_requests = [item for item in data['results'] if item['status'] == 2 and item['media']['status'] == 3]
+    logger.info(f"Filtered {len(processing_requests)} processing requests")
+    return processing_requests
+
+# Trakt API rate limit: 1000 calls every 5 minutes
+TRAKT_RATE_LIMIT = 1000
+TRAKT_RATE_LIMIT_PERIOD = 5 * 60  # 5 minutes in seconds
+
+trakt_api_calls = 0
+last_reset_time = time.time()
+
+def get_movie_details_from_trakt(tmdb_id: str) -> Optional[dict]:
+    global trakt_api_calls, last_reset_time
+
+    # Check if the rate limit period has elapsed
+    current_time = time.time()
+    if current_time - last_reset_time >= TRAKT_RATE_LIMIT_PERIOD:
+        trakt_api_calls = 0
+        last_reset_time = current_time
+
+    # Check if we have reached the rate limit
+    if trakt_api_calls >= TRAKT_RATE_LIMIT:
+        logger.warning("Trakt API rate limit reached. Waiting for the next period.")
+        time.sleep(TRAKT_RATE_LIMIT_PERIOD - (current_time - last_reset_time))
+        trakt_api_calls = 0
+        last_reset_time = time.time()
+
+    url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?type=movie"
+    headers = {
+        "Content-type": "application/json",
+        "trakt-api-key": TRAKT_API_KEY,
+        "trakt-api-version": "2"
+    }
     
     try:
-        # Asynchronously iterate over the message history from newest to oldest
-        async for message in channel.history(after=thirty_days_ago, limit=None):
-            messages.append(message)
+        response = requests.get(url, headers=headers, timeout=10)
+        trakt_api_calls += 1
         
-        logger.info(f"Fetched {len(messages)} messages from the last 30 days.")
-        return messages  # Messages are already in newest-to-oldest order
-    except Exception as e:
-        logger.error(f"Error fetching messages: {e}")
-        return []
+        if response.status_code == 200:
+            data = response.json()
+            if data and isinstance(data, list) and data:
+                movie_info = data[0]['movie']
+                return {
+                    "title": movie_info['title'],
+                    "year": movie_info['year']
+                }
+            else:
+                logger.error("Movie details for ID not found in Trakt API response.")
+                return None
+        else:
+            logger.error(f"Trakt API request failed with status code {response.status_code}")
+            return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching movie details from Trakt API: {e}")
+        return None
 
 ### Process the fetched messages (newest to oldest)
 async def process_movie_requests():
-    messages = await fetch_last_30_days_messages()
-    if not messages:
+    requests = get_overseerr_media_requests()
+    if not requests:
+        logger.info("No requests to process")
         return
     
-    # Dictionary to store movie requests
-    movie_requests = {}
+    for request in requests:
+        tmdb_id = request['media']['tmdbId']
+        media_id = request['media']['id']
+        logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id}")
+        
+        movie_details = get_movie_details_from_trakt(tmdb_id)
+        if not movie_details:
+            logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
+            continue
+        
+        movie_title = f"{movie_details['title']} ({movie_details['year']})"
+        logger.info(f"Processing movie request: {movie_title}")
+        
+        try:
+            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request and get the confirmation flag
+            if confirmation_flag:
+                if mark_completed(media_id, tmdb_id):
+                    logger.success(f"Marked media {media_id} as completed in overseerr")
+                else:
+                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+            else:
+                logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+        except Exception as ex:
+            logger.critical(f"Error processing movie request {movie_title}: {ex}")
+
+    logger.info("Finished processing all current requests. Waiting for new requests.")
+
+def mark_completed(media_id: int, tmdb_id: int) -> bool:
+    """Mark item as completed in overseerr"""
+    url = f"{OVERSEERR_API_BASE_URL}/media/{media_id}/available"
+    headers = {
+        "X-Api-Key": OVERSEERR_API_KEY,
+        "Content-Type": "application/json"
+    }
+    data = {"is4k": False}
     
-    # Step 1: Parse messages for movie requests (newest to oldest)
-    for message in messages:
-        if message.embeds:
-            for embed in message.embeds:
-                if embed.author and embed.author.name == "Movie Request Automatically Approved":
-                    movie_title = embed.title.strip() if embed.title else None
-                    if movie_title:
-                        logger.info(f"Found movie request: {movie_title}")
-                        movie_requests[movie_title] = False  # Initially mark as not available
-    
-    # Step 2: Check if the movie has been marked as "available"
-    for message in messages:
-        if message.embeds:
-            for embed in message.embeds:
-                if embed.author and embed.author.name == "Movie Request Now Available":
-                    movie_title = embed.title.strip() if embed.title else None
-                    if movie_title and movie_title in movie_requests:
-                        logger.info(f"Movie found as available: {movie_title}")
-                        movie_requests[movie_title] = True  # Mark as available
-    
-    # Step 3: Re-add unavailable movies to the queue (newest to oldest)
-    for movie_title, available in movie_requests.items():
-        if not available:
-            logger.info(f"Movie {movie_title} is not available, re-adding to the queue.")
-            success = await add_request_to_queue(movie_title)
-            if not success:
-                logger.warning(f"Failed to re-add {movie_title} to the queue.")
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response_data = response.json()  # Parse the JSON response
+        
+        if response.status_code == 200:
+            # Verify that the response contains the correct tmdb_id
+            if response_data.get('tmdbId') == tmdb_id:
+                logger.info(f"Marked media {media_id} as completed in overseerr. Response: {response_data}")
+                return True
+            else:
+                logger.error(f"TMDB ID mismatch for media {media_id}. Expected {tmdb_id}, got {response_data.get('tmdbId')}")
+                return False
+        else:
+            logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: Status code {response.status_code}, Response: {response_data}")
+            return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: {str(e)}")
+        return False
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to decode JSON response for media {media_id}: {str(e)}")
+        return False
 
 
-### Task to Recheck Every X Hours
-@tasks.loop(hours=2)
-async def recheck_movie_requests():
-    logger.info("Rechecking movie requests from the last 30 days...")
-    await process_movie_requests()
 
 ### Search Function to Reuse Browser
 def search_on_debrid(movie_title, driver):
@@ -439,6 +570,7 @@ def search_on_debrid(movie_title, driver):
             logger.critical(f"Failed to find or click on the search result: {movie_title}")
             return
 
+        confirmation_flag = False  # Initialize the confirmation flag
 
         # Wait for the movie's details page to load by listening for the status message
         try:
@@ -519,7 +651,8 @@ def search_on_debrid(movie_title, driver):
                             if expected_year is None or abs(red_button_year - expected_year) <= 1:
                                 # Title matches, skip further action for this entry
                                 logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
-                                return  # Exit the function as we've found a matching red button
+                                confirmation_flag = True
+                                return confirmation_flag  # Exit the function as we've found a matching red button
                             else:
                                 logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
                                 continue
@@ -622,7 +755,8 @@ def search_on_debrid(movie_title, driver):
                             if expected_year is None or abs(red_button_year - expected_year) <= 1:
                                 # Title matches, skip further action for this entry
                                 logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
-                                return  # Exit the function as we've found a matching red button
+                                confirmation_flag = True
+                                return confirmation_flag  # Exit the function as we've found a matching red button
                             else:
                                 logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
                                 continue
@@ -726,6 +860,8 @@ def search_on_debrid(movie_title, driver):
                             # If it's "RD (100%)", we are done with this entry
                             if "RD (100%)" in rd_button_text:
                                 logger.success(f"RD (100%) button detected. {i} {title_text}. This entry is complete.")
+                                confirmation_flag = True
+                                return confirmation_flag  # Exit the function as we've found a matching red button
                                 break  # Break out of the loop since the task is complete
 
                         except TimeoutException:
@@ -740,93 +876,123 @@ def search_on_debrid(movie_title, driver):
             except TimeoutException:
                 logger.warning("Timeout waiting for result boxes to appear.")
 
-
+            return confirmation_flag  # Return the confirmation flag
 
         except TimeoutException:
             logger.warning("Timeout waiting for the RD status message.")
             return
 
-
     except Exception as ex:
         logger.critical(f"Error during Selenium automation: {ex}")
 
+async def get_user_input():
+    try:
+        # Simulate asynchronous input with a timeout
+        user_input = await asyncio.wait_for(
+            asyncio.to_thread(input, "Do you want to start the initial check and recurring task? (y/n): "), 
+            timeout=10
+        )
+        return user_input.strip().lower()
+    except asyncio.TimeoutError:
+        return 'n'  # Default to 'no' if no input is provided within 10 seconds
 
-### Discord Bot Logic
-@client.event
-async def on_ready():
+### Webhook Endpoint ###
+@app.post("/jellyseer-webhook/")
+async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
+    # Log the raw incoming payload for debugging
+    raw_payload = await request.json()
+    #logger.info(f"Raw incoming webhook payload: {raw_payload}")
+
+    try:
+        # Parse the payload using the WebhookPayload model
+        payload = WebhookPayload(**raw_payload)
+    except ValidationError as e:
+        # Log the validation error details
+        logger.error(f"Payload validation error: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Log the specific event from the payload
+    logger.success(f"Received webhook with event: {payload.event}")
+
+    # Extract tmdbId from the payload
+    tmdb_id = payload.media.tmdbId
+    if not tmdb_id:
+        logger.error("TMDB ID is missing in the payload")
+        raise HTTPException(status_code=400, detail="TMDB ID is missing in the payload")
+
+    # Log the extracted tmdb_id
+    logger.info(f"Extracted tmdbId: {tmdb_id}")
+
+    # Fetch movie details from Trakt using tmdb_id
+    movie_details = get_movie_details_from_trakt(tmdb_id)
+    if not movie_details:
+        logger.error("Failed to fetch movie details from Trakt")
+        raise HTTPException(status_code=500, detail="Failed to fetch movie details from Trakt")
+
+    # Log the fetched movie details
+    movie_title = f"{movie_details['title']} ({movie_details['year']})"
+    logger.info(f"Fetched movie details: {movie_title}")
+
+    # Add movie request to background processing queue
+    background_tasks.add_task(add_request_to_queue, movie_title)
+    
+    # Log the response before returning
+    logger.info(f"Returning response: {movie_details['title']} ({movie_details['year']})")
+    
+    return {"status": "success", "movie_title": movie_details['title'], "movie_year": movie_details['year']}
+
+### Background Task to Process Overseerr Requests Periodically ###
+@app.on_event("startup")
+async def startup_event():
     global processing_task
-    logger.info(f'Bot logged in as {client.user}')
+    logger.info('Starting SeerrBridge...')
     
     # Always initialize the browser when the bot is ready
-    await initialize_browser()
+    try:
+        await initialize_browser()
+    except Exception as e:
+        logger.error(f"Failed to initialize browser: {e}")
+        return
 
     # Start the request processing task if not already started
     if processing_task is None:
         processing_task = asyncio.create_task(process_requests())
         logger.info("Started request processing task.")
-    
-    # Ask user if they want to proceed with the last part
-    user_input = input("Do you want to start the initial check and recurring task? (y/n): ").strip().lower()
+
+    # Ask user if they want to proceed with the initial check and recurring task
+    user_input = await get_user_input()
 
     if user_input == 'y':
-        # Start the initial check for the last 30 days
-        await process_movie_requests()
+        try:
+            # Run the initial check immediately
+            await process_movie_requests()
+            logger.info("Completed initial check of movie requests.")
 
-        # Start the recurring task (every X hours)
-        recheck_movie_requests.start()
-        logger.success(f"Started recurring task to recheck movie requests every {recheck_movie_requests.hours} hours. Running first check now.")
-    
+            # Schedule the rechecking of movie requests every 2 hours
+            schedule_recheck_movie_requests()
+            logger.info("Scheduled rechecking movie requests every 2 hours.")
+        except Exception as e:
+            logger.error(f"Error while processing movie requests: {e}")
+
     elif user_input == 'n':
         logger.info("Initial check and recurring task were skipped by user input.")
-    
+        return  # Exit the function if the user opts out
+
     else:
         logger.warning("Invalid input. Please restart the bot and enter 'y' or 'n'.")
 
-
-@client.event
-async def on_message(message):
-    logger.info(f"Message received in channel {message.channel.id}")
-
-    if message.author == client.user:
-        return
-
-    if message.channel.id == CHANNEL_ID:
-        logger.info("Message is in the correct channel.")
-
-        if message.embeds:
-            logger.info("Message contains embeds. Processing embeds...")
-
-            for embed in message.embeds:
-                logger.info(f"Embed title: {embed.title}")
-                logger.info(f"Embed description: {embed.description}")
-
-                if embed.author and embed.author.name == "Movie Request Automatically Approved":
-                    logger.info(f"Detected a movie request from author: {embed.author.name}")
-
-                    movie_title = embed.title.strip() if embed.title else None
-
-                    if movie_title:
-                        logger.info(f"New movie request detected: {movie_title}")
-                        success = await add_request_to_queue(movie_title)  # Add request to the queue
-                        if not success:
-                            await message.channel.send("Request queue is full. Please try again later.")
-                    else:
-                        logger.warning("Embed title is missing. Skipping.")
-
-@client.event
-async def on_disconnect():
-    logger.warning("Bot disconnected, attempting to reconnect...")
+def schedule_recheck_movie_requests():
+    # Correctly schedule the job with an interval of 2 hours
+    scheduler.add_job(process_movie_requests, 'interval', hours=2)
+    scheduler.start()
+    logger.info("Scheduled rechecking movie requests every 2 hours.")
 
 
-@client.event
+
 async def on_close():
     await shutdown_browser()  # Ensure browser is closed when the bot closes
 
-# Run the Discord client
+# Main entry point for running the FastAPI server
 if __name__ == "__main__":
-    try:
-        logger.info("Starting Discord bot...")
-        client.run(TOKEN)
-    except Exception as e:
-        logger.critical(f"Failed to run the Discord bot: {e}")
-        asyncio.run(shutdown_browser())  # Ensure browser is closed on critical failure
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
