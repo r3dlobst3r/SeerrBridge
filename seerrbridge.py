@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.1}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -614,7 +614,6 @@ def search_on_debrid(movie_title, driver):
                 red_buttons_elements = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                 logger.info(f"Found {len(red_buttons_elements)} red button(s) (100% RD). Verifying titles before deciding to skip.")
 
-                # Iterate through each red button and its associated title
                 for i, red_button_element in enumerate(red_buttons_elements, start=1):
                     logger.info(f"Checking red button {i}...")
 
@@ -639,33 +638,38 @@ def search_on_debrid(movie_title, driver):
                         # Extract the expected year from the provided movie title (if it exists)
                         expected_year = extract_year(movie_title)
 
-                        # Define the current year for comparison
-                        current_year = datetime.now().year
+                        # Use fuzzy matching instead of startswith (also allow partial matching for more relaxed comparisons)
+                        title_match_ratio = fuzz.partial_ratio(red_button_title_cleaned.lower(), movie_title_cleaned.lower())
+                        title_match_threshold = 75  # You can lower or raise this based on how aggressive you want it to be.
 
-                        # Compare the title in various forms (cleaned, normalized, etc.)
+                        # Additional title comparison logic with fuzzy matching and threshold
+                        title_matched = False
                         if (
-                            red_button_title_cleaned.startswith(movie_title_cleaned) or
-                            red_button_title_normalized.startswith(movie_title_normalized)
+                            title_match_ratio >= title_match_threshold or  # Fuzzy match title (relaxed match)
+                            movie_title_normalized.startswith(red_button_title_normalized)  # Backwards title check
                         ):
-                            # Check if the years match or if the expected year is within ±1 year range
-                            if expected_year is None or abs(red_button_year - expected_year) <= 1:
-                                # Title matches, skip further action for this entry
-                                logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
-                                confirmation_flag = True
-                                return confirmation_flag  # Exit the function as we've found a matching red button
-                            else:
-                                logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
-                                continue
+                            # Titles match within boundaries.
+                            title_matched = True  # Consider this a valid match.
+
+                        # Expanded year match check with more leeway (±2 years to avoid overly strict checks)
+                        year_matched = (expected_year is None or abs(red_button_year - expected_year) <= 2)
+
+                        if title_matched and year_matched:
+                            logger.info(f"Found a match on red button {i} - {red_button_title_cleaned}. Skipping...")
+                            # Handle the RD button selection or matching action here
+                            confirmation_flag = True  # Mark as confirmed match.
+                            return confirmation_flag  # Once we click a matching button, we stop further checks.
+
                         else:
-                            # Title does not match, log and continue to the next red button
-                            logger.info(f"Title mismatch with red button {i}: {red_button_title_cleaned}. Continuing to check other boxes.")
-                    
+                            # If no match, continue with the next available RD red button.
+                            logger.warning(f"No match for red button {i}: Title - {red_button_title_cleaned}, Year - {red_button_year}. Moving to next red button.")
+
                     except NoSuchElementException as e:
                         logger.warning(f"Could not find title associated with red button {i}: {e}")
                         continue  # If a title is not found for a red button, continue to the next one
-
             except NoSuchElementException:
-                logger.info("No red buttons (100% RD) detected. Proceeding with 'Checking RD availability...'.")
+                logger.info("No red buttons (100% RD) detected. Proceeding with optional fallback.")
+
 
             # Step 3: Wait for the "Checking RD availability..." message to disappear
             try:
@@ -718,7 +722,6 @@ def search_on_debrid(movie_title, driver):
                 red_buttons_elements = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                 logger.info(f"Found {len(red_buttons_elements)} red button(s) (100% RD). Verifying titles before deciding to skip.")
 
-                # Iterate through each red button and its associated title
                 for i, red_button_element in enumerate(red_buttons_elements, start=1):
                     logger.info(f"Checking red button {i}...")
 
@@ -743,33 +746,38 @@ def search_on_debrid(movie_title, driver):
                         # Extract the expected year from the provided movie title (if it exists)
                         expected_year = extract_year(movie_title)
 
-                        # Define the current year for comparison
-                        current_year = datetime.now().year
+                        # Use fuzzy matching instead of startswith (also allow partial matching for more relaxed comparisons)
+                        title_match_ratio = fuzz.partial_ratio(red_button_title_cleaned.lower(), movie_title_cleaned.lower())
+                        title_match_threshold = 75  # You can lower or raise this based on how aggressive you want it to be.
 
-                        # Compare the title in various forms (cleaned, normalized, etc.)
+                        # Additional title comparison logic with fuzzy matching and threshold
+                        title_matched = False
                         if (
-                            red_button_title_cleaned.startswith(movie_title_cleaned) or
-                            red_button_title_normalized.startswith(movie_title_normalized)
+                            title_match_ratio >= title_match_threshold or  # Fuzzy match title (relaxed match)
+                            movie_title_normalized.startswith(red_button_title_normalized)  # Backwards title check
                         ):
-                            # Check if the years match or if the expected year is within ±1 year range
-                            if expected_year is None or abs(red_button_year - expected_year) <= 1:
-                                # Title matches, skip further action for this entry
-                                logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
-                                confirmation_flag = True
-                                return confirmation_flag  # Exit the function as we've found a matching red button
-                            else:
-                                logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
-                                continue
+                            # Titles match within boundaries.
+                            title_matched = True  # Consider this a valid match.
+
+                        # Expanded year match check with more leeway (±2 years to avoid overly strict checks)
+                        year_matched = (expected_year is None or abs(red_button_year - expected_year) <= 2)
+
+                        if title_matched and year_matched:
+                            logger.info(f"Found a match on red button {i} - {red_button_title_cleaned}. Skipping...")
+                            # Handle the RD button selection or matching action here
+                            confirmation_flag = True  # Mark as confirmed match.
+                            return confirmation_flag  # Once we click a matching button, we stop further checks.
+
                         else:
-                            # Title does not match, log and continue to the next red button
-                            logger.info(f"Title mismatch with red button {i}: {red_button_title_cleaned}. Continuing to check other boxes.")
-                    
+                            # If no match, continue with the next available RD red button.
+                            logger.warning(f"No match for red button {i}: Title - {red_button_title_cleaned}, Year - {red_button_year}. Moving to next red button.")
+
                     except NoSuchElementException as e:
                         logger.warning(f"Could not find title associated with red button {i}: {e}")
                         continue  # If a title is not found for a red button, continue to the next one
-
             except NoSuchElementException:
-                logger.info("No red buttons (100% RD) detected. Proceeding with 'Checking RD availability...'.")
+                logger.info("No red buttons (100% RD) detected. Proceeding with optional fallback.")
+
 
             # After clicking the matched movie title, we now check the popup boxes for Instant RD buttons
             # Step 8: Check the result boxes with the specified class for "Instant RD"
@@ -818,18 +826,16 @@ def search_on_debrid(movie_title, driver):
                         logger.info(f"Movie title (words to digits): {movie_title_cleaned_digit}, Box title (words to digits): {title_text_cleaned_digit}")
 
                         # Compare the title in all variations
-                        # Compare the title in all variations
                         if not (
-                            title_text_cleaned.startswith(movie_title_cleaned) or
-                            title_text_normalized.startswith(movie_title_normalized) or
-                            title_text_cleaned_word.startswith(movie_title_cleaned_word) or
-                            title_text_normalized_word.startswith(movie_title_normalized_word) or
-                            title_text_cleaned_digit.startswith(movie_title_cleaned_digit) or
-                            title_text_normalized_digit.startswith(movie_title_normalized_digit)
+                            fuzz.partial_ratio(title_text_cleaned.lower(), movie_title_cleaned.lower()) >= 75 or
+                            fuzz.partial_ratio(title_text_normalized.lower(), movie_title_normalized.lower()) >= 75 or
+                            fuzz.partial_ratio(title_text_cleaned_word.lower(), movie_title_cleaned_word.lower()) >= 75 or
+                            fuzz.partial_ratio(title_text_normalized_word.lower(), movie_title_normalized_word.lower()) >= 75 or
+                            fuzz.partial_ratio(title_text_cleaned_digit.lower(), movie_title_cleaned_digit.lower()) >= 75 or
+                            fuzz.partial_ratio(title_text_normalized_digit.lower(), movie_title_normalized_digit.lower()) >= 75
                         ):
                             logger.warning(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
                             continue  # Skip this box if none of the variations match
-
 
                         # Compare the year with the expected year (allow ±1 year)
                         expected_year = extract_year(movie_title)
