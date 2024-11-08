@@ -181,7 +181,7 @@ If you are not already sending notifications, follow the [JellySeerr documention
 - [ ] **TV Show Support**: Extend functionality to handle TV series and episodes.
 - [ ] **Jellyseer/Overseer API Integration**: Direct integration with Jellyseer/Overseer API for smoother automation and control.
 - [ ] **DMM Token**: Ensure access token permanence/refresh
-- [ ] **Title Parsing**: Ensure torrent titles/names are properly matched and handles different languages.
+- [x] **Title Parsing**: Ensure torrent titles/names are properly matched and handles different languages.
 
 ---
 
