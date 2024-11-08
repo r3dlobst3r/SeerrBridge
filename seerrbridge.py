@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.1.2}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -9,6 +9,7 @@
 # -----------------------------------------------------------------------------
 import discord
 import asyncio
+import json
 import time
 import os
 import logging
@@ -25,6 +26,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from dotenv import load_dotenv
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from asyncio import Queue
+from datetime import datetime, timedelta
+from discord.ext import tasks
 
 # Configure logging
 logging.basicConfig(
@@ -49,8 +52,7 @@ except ValueError:
     exit(1)
 
 # Securely load credentials from environment variables
-REAL_DEBRID_USERNAME = os.getenv('REAL_DEBRID_USERNAME')
-REAL_DEBRID_PASSWORD = os.getenv('REAL_DEBRID_PASSWORD')
+RD_ACCESS_TOKEN = os.getenv('RD_ACCESS_TOKEN')
 
 # Discord bot intents
 intents = discord.Intents.default()
@@ -79,46 +81,9 @@ def login(driver):
         login_button.click()
         logger.info("Clicked on 'Login with Real Debrid' button.")
 
-        # Click the "Authorize Debrid Media Manager" button
-        authorize_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Authorize Debrid Media Manager')]"))
-        )
-        authorize_button.click()
-        logger.info("Clicked on 'Authorize Debrid Media Manager' button.")
-
-        # Switch to the new tab for Real-Debrid login
-        driver.switch_to.window(driver.window_handles[-1])
-
-        # Fill in the username and password fields
-        username_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "u"))
-        )
-        username_field.send_keys(REAL_DEBRID_USERNAME)
-        logger.info("Entered username.")
-
-        password_field = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.NAME, "p"))
-        )
-        password_field.send_keys(REAL_DEBRID_PASSWORD)
-        logger.info("Entered password.")
-
-        # Submit the login form
-        submit_button = driver.find_element(By.XPATH, "//input[@type='submit' and @value='Login']")
-        time.sleep(2)
-        submit_button.click()
-        logger.info("Submitted the login form.")
-
-        # Wait for the "Application allowed" message
-        WebDriverWait(driver, 30).until(
-            EC.text_to_be_present_in_element((By.XPATH, "//body"), "Application allowed, you can close this page")
-        )
-        logger.info("Login successful, authorization granted.")
-        time.sleep(2)
-        # Close the authorization tab and switch back to the debrid media manager tab
-        driver.switch_to.window(driver.window_handles[0])
-
     except (TimeoutException, NoSuchElementException) as ex:
         logger.error(f"Error during login process: {ex}")
+
 
 ### Browser Initialization and Persistent Session
 async def initialize_browser():
@@ -129,7 +94,6 @@ async def initialize_browser():
         options = Options()
         options.add_argument('--headless')  # Run browser in headless mode
         options.add_argument('--disable-gpu')  # Disable GPU to save resources
-
 
         chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
         service = ChromeService(executable_path=chromedriver_path)
@@ -143,45 +107,60 @@ async def initialize_browser():
         })
         logger.info("Initialized Selenium WebDriver.")
 
-        # Perform login once during browser initialization
+        # Navigate to Debrid Media Manager
         driver.get("https://debridmediamanager.com")
         logger.info("Navigated to Debrid Media Manager start page.")
-        login(driver)
-        logger.info("Logged into Debrid Media Manager.")
 
+        # Inject Real-Debrid access token and other credentials into local storage
+        driver.execute_script(f"""
+            localStorage.setItem('rd:accessToken', '{RD_ACCESS_TOKEN}');
+        """)
+        logger.info("Set Real-Debrid credentials in local storage.")
+
+        # Refresh the page to apply the local storage values
+        driver.refresh()
+        logger.info("Refreshed the page to apply local storage values.")
+        # After refreshing, call the login function to click the login button
+        login(driver)
         # After successful login, click on "⚙️ Settings" to open the settings popup
         try:
+
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
-
             # Wait for the settings popup to appear
             WebDriverWait(driver, 10).until(
+
                 EC.presence_of_element_located((By.XPATH, "//h2[contains(text(),'⚙️ Settings')]"))
             )
-            logger.info("Settings popup appeared.")
 
+            logger.info("Settings popup appeared.")
             # Locate the "Default torrents filter" input box and insert the regex
             logger.info("Attempting to insert regex into 'Default torrents filter' box.")
             default_filter_input = WebDriverWait(driver, 10).until(
+
                 EC.presence_of_element_located((By.ID, "dmm-default-torrents-filter"))
             )
             default_filter_input.clear()  # Clear any existing filter
+
             # Add custom Regex here
-            default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+            default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).* videos:1")
+
             logger.info("Inserted regex into 'Default torrents filter' input box.")
 
             # Confirm the changes by clicking the 'OK' button on the popup
-            ok_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[@class='swal2-confirm swal2-styled']"))
+            save_button = WebDriverWait(driver, 10).until(
+
+                EC.element_to_be_clickable((By.XPATH, "//button[@class='swal2-confirm !bg-blue-600 !px-6 haptic swal2-styled']"))
             )
-            ok_button.click()
+            save_button.click()
             logger.info("Clicked 'OK' to save settings.")
 
         except (TimeoutException, NoSuchElementException) as ex:
+
             logger.error(f"Error while interacting with the settings popup: {ex}")
 
         # Navigate to the library section
@@ -196,7 +175,7 @@ async def initialize_browser():
             )
             logger.info("Library section loaded successfully.")
         except TimeoutException:
-            logger.error("Library section did not load within the expected time.")
+            logger.error("Library loading.")
 
         # Wait for at least 2 seconds on the library page
         logger.info("Waiting for 2 seconds on the library page.")
@@ -289,6 +268,76 @@ def replace_words_with_numbers(title):
         title = re.sub(rf'\b{word}\b', digit, title, flags=re.IGNORECASE)
     return title
 
+### Updated Function to Fetch Messages from the Last 30 Days (Newest First)
+async def fetch_last_30_days_messages():
+    logger.info("Fetching messages from the last 30 days...")
+    channel = client.get_channel(CHANNEL_ID)
+    
+    if not channel:
+        logger.error(f"Channel with ID {CHANNEL_ID} not found.")
+        return []
+    
+    # Calculate the timestamp for 30 days ago
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    
+    # List to store fetched messages
+    messages = []
+    
+    try:
+        # Asynchronously iterate over the message history from newest to oldest
+        async for message in channel.history(after=thirty_days_ago, limit=None):
+            messages.append(message)
+        
+        logger.info(f"Fetched {len(messages)} messages from the last 30 days.")
+        return messages  # Messages are already in newest-to-oldest order
+    except Exception as e:
+        logger.error(f"Error fetching messages: {e}")
+        return []
+
+### Process the fetched messages (newest to oldest)
+async def process_movie_requests():
+    messages = await fetch_last_30_days_messages()
+    if not messages:
+        return
+    
+    # Dictionary to store movie requests
+    movie_requests = {}
+    
+    # Step 1: Parse messages for movie requests (newest to oldest)
+    for message in messages:
+        if message.embeds:
+            for embed in message.embeds:
+                if embed.author and embed.author.name == "Movie Request Automatically Approved":
+                    movie_title = embed.title.strip() if embed.title else None
+                    if movie_title:
+                        logger.info(f"Found movie request: {movie_title}")
+                        movie_requests[movie_title] = False  # Initially mark as not available
+    
+    # Step 2: Check if the movie has been marked as "available"
+    for message in messages:
+        if message.embeds:
+            for embed in message.embeds:
+                if embed.author and embed.author.name == "Movie Request Now Available":
+                    movie_title = embed.title.strip() if embed.title else None
+                    if movie_title and movie_title in movie_requests:
+                        logger.info(f"Movie found as available: {movie_title}")
+                        movie_requests[movie_title] = True  # Mark as available
+    
+    # Step 3: Re-add unavailable movies to the queue (newest to oldest)
+    for movie_title, available in movie_requests.items():
+        if not available:
+            logger.info(f"Movie {movie_title} is not available, re-adding to the queue.")
+            success = await add_request_to_queue(movie_title)
+            if not success:
+                logger.warning(f"Failed to re-add {movie_title} to the queue.")
+
+
+### Task to Recheck Every 2 Hours
+@tasks.loop(hours=2)
+async def recheck_movie_requests():
+    logger.info("Rechecking movie requests from the last 30 days...")
+    await process_movie_requests()
+
 ### Search Function to Reuse Browser
 def search_on_debrid(movie_title, driver):
     logger.info(f"Starting Selenium automation for movie: {movie_title}")
@@ -352,21 +401,44 @@ def search_on_debrid(movie_title, driver):
 
         # Wait for the movie's details page to load by listening for the status message
         try:
-            # Step 1: Wait for the "Checking RD availability..." message to appear
-            logger.info("Waiting for 'Checking RD availability...' to appear.")
-            
-            WebDriverWait(driver, 60).until(
-                EC.text_to_be_present_in_element(
-                    (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite')]"),
-                    "Checking RD availability"
+            # Step 1: Check for Status Message
+            try:
+                no_results_element = WebDriverWait(driver, 2).until(
+                    EC.text_to_be_present_in_element(
+                        (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite')]"),
+                        "No results found"
+                    )
                 )
-            )
-            
-            logger.info("'Checking RD availability...' has appeared. Waiting for it to disappear & Checking if already available.")
+                logger.info("'No results found' message detected. Skipping further checks.")
+                return  # Skip further checks if "No results found" is detected
+            except TimeoutException:
+                logger.info("'No results found' message not detected. Proceeding to check for available torrents.")
+
+            try:
+                status_element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
+                    )
+                )
+                status_text = status_element.text
+                logger.info(f"Status message: {status_text}")
+
+                # Extract the number of available torrents from the status message (look for the number)
+                torrents_match = re.search(r"Found (\d+) available torrents in RD", status_text)
+                if torrents_match:
+                    torrents_count = int(torrents_match.group(1))
+                    logger.info(f"Found {torrents_count} available torrents in RD.")
+                else:
+                    logger.warning("Could not find the expected 'Found X available torrents in RD' message. Proceeding to check for 'Checking RD availability...'.")
+            except TimeoutException:
+                logger.warning("Timeout waiting for the RD status message. Proceeding with the next steps.")
+                status_text = None  # No status message found, but continue
+
+            logger.info("Waiting for 'Checking RD availability...' to appear.")
             
             # Step 2: Check if any red button (RD 100%) exists immediately, and skip if found
             try:
-                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-500')]")
+                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                 logger.info("Red button (100% RD) detected. Skipping this entry.")
                 return  # Skip this entry if the red button is detected
             except NoSuchElementException:
@@ -374,7 +446,7 @@ def search_on_debrid(movie_title, driver):
 
             # Step 3: Wait for the "Checking RD availability..." message to disappear
             try:
-                WebDriverWait(driver, 60).until_not(
+                WebDriverWait(driver, 30).until_not(
                     EC.text_to_be_present_in_element(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite')]"),
                         "Checking RD availability"
@@ -382,11 +454,11 @@ def search_on_debrid(movie_title, driver):
                 )
                 logger.info("'Checking RD availability...' has disappeared. Now waiting for RD results.")
             except TimeoutException:
-                logger.warning("'Checking RD availability...' did not disappear within 60 seconds. Proceeding to the next steps.")
+                logger.warning("'Checking RD availability...' did not disappear within 30 seconds. Proceeding to the next steps.")
 
             # Step 4: Wait for the "Found X available torrents in RD" message
             try:
-                status_element = WebDriverWait(driver, 60).until(
+                status_element = WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
@@ -420,7 +492,7 @@ def search_on_debrid(movie_title, driver):
             
             # Step 7: Check if any red button (RD 100%) exists again before continuing
             try:
-                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-500')]")
+                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                 logger.info("Red button (100% RD) detected after RD check. Skipping this entry.")
                 return  # Skip this entry if the red button is detected
             except NoSuchElementException:
@@ -490,22 +562,8 @@ def search_on_debrid(movie_title, driver):
                             logger.info(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
                             continue  # Skip this box if the year doesn't match
 
-                        # Check the file count (ensure it's 1 folder)
-                        file_info_element = result_box.find_element(By.XPATH, ".//div[contains(@class, 'text-gray-300')]")
-                        file_info_text = file_info_element.text
-                        file_count_match = re.search(r"\((\d+) 📂\)", file_info_text)
-
-                        if file_count_match:
-                            file_count = int(file_count_match.group(1))
-                            if file_count > 1:
-                                logger.info(f"Box {i} has {file_count} files (Expected: 1). Skipping.")
-                                continue  # Skip this box if there is more than 1 file
-                        else:
-                            logger.warning(f"Could not extract file count from '{file_info_text}' in box {i}. Skipping.")
-                            continue
-
                         # Try to locate the Instant RD button using the button's class
-                        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-600')]")
+                        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
                         instant_rd_button.click()
                         logger.info(f"Clicked 'Instant RD' in box {i} for {title_text} ({box_year}).")
                         time.sleep(2)
@@ -562,6 +620,13 @@ async def on_ready():
     if processing_task is None:  # Start the request processing task if not already started
         processing_task = asyncio.create_task(process_requests())
         logger.info("Started request processing task.")
+    
+    # Start the initial check for the last 30 days
+    #await process_movie_requests()
+
+    # Start the 2-hour recurring task
+    #recheck_movie_requests.start()
+    #logger.info("Started recurring task to recheck movie requests every 24 hours.")
 
 @client.event
 async def on_message(message):
