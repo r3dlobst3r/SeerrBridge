@@ -15,26 +15,26 @@
 
 ## 🚀 What is SeerrBridge?
 
-🌉 **SeerrBridge** is a browser automation tool that integrates [Jellyseer](https://github.com/Fallenbagel/jellyseerr)/[Overseerr](https://overseerr.dev/) with [Debrid Media Manager](https://github.com/debridmediamanager/debrid-media-manager). It listens to movie requests in Discord and automates the torrent search and download process using Debrid Media Manager via browser automation, which in turn, gets sent to Real-Debrid. This streamlines your media management, making it fast and efficient.
+🌉 **SeerrBridge** is a browser automation tool that integrates [Jellyseer](https://github.com/Fallenbagel/jellyseerr)/[Overseerr](https://overseerr.dev/) with [Debrid Media Manager](https://github.com/debridmediamanager/debrid-media-manager). It listens to movie requests via Overseerr webhook. It automates the torrent search and download process using Debrid Media Manager via browser automation, which in turn, gets sent to Real-Debrid. This streamlines your media management, making it fast and efficient.
 
 🛠️ **Why SeerrBridge?** 
 
 **SeerrBridge** eliminates the need to set up multiple applications like [Radarr](https://radarr.video/), [Sonarr](https://sonarr.tv/), [Jackett](https://github.com/Jackett/Jackett), [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr), and other download clients. With SeerrBridge, you streamline your media management into one simple, automated process. No more juggling multiple tools—just request and download!
 
-Simply put, I was too lazy to setup all of these other applications, and thought.... I want this instead.
+Simply put, I was too lazy to set up all of these other applications (arrs) and thought.... I want this instead.
 
 
 ---
 
 ## 📊 Flowchart (Rectangle of Life)
 
-![image](https://github.com/user-attachments/assets/e2ad18f2-be8b-46b8-8b8c-0132a0236aef)
+![image](https://github.com/user-attachments/assets/e6b1a4f2-8c69-40f9-92a8-e6e76e8e34e7)
 
 ---
 
 ## 🔑 Key Features
 
-- **Automated Movie Requests**: Automatically processes movie requests from Discord and fetches torrents from Debrid Media Manager.
+- **Automated Movie Requests**: Automatically processes movie requests from Overseerr and fetches torrents from Debrid Media Manager.
 - **Debrid Media Manager Integration**: Uses DMM to automate (via browser) torrent search & downloads.
 - **Persistent Browser Session**: Keeps a browser session alive using Selenium, ensuring faster and more seamless automation.
 - **Queue Management**: Handles multiple requests with an asynchronous queue, ensuring smooth processing.
@@ -47,7 +47,7 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 | Service        | Status | Notes                                |
 |----------------|--------|--------------------------------------|
 | **[List Sync](https://github.com/Woahai321/list-sync)**| ✅      | Our other Seerr app for importing lists   |
-| **Jellyseerr**  | ✅      | Main integration. Supports movie requests via Discord  |
+| **Jellyseerr**  | ✅      | Main integration. Supports movie requests via webhook  |
 | **Overseerr**   | ✅      | Base application Jellyseerr is based on  |
 | **Debrid Media Manager**| ✅      | Torrent fetching automation          |
 | **Real-Debrid**| ✅      | Unrestricted (torrent) downloader       |
@@ -59,14 +59,17 @@ Simply put, I was too lazy to setup all of these other applications, and thought
 
 ## ⚙ Requirements
 
-Before you can run this bot, ensure that you have the following prerequisites:
+Before you can run this script, ensure that you have the following prerequisites:
 
 ### 1. **Jellyseerr / Overseerr Notifications**
-  - You can follow the Jellyseerr documention on getting [notifications into Discord](https://docs.jellyseerr.dev/using-jellyseerr/notifications/discord).
+  - SeerrBridge should be running on the same machine that Jellyseerr / Overseerr is running on.
+  - You will navigate to Settings > Notifications > Webhook > Turn it on, and configure as shown below
 
-### Currently, the script is looking for the request coming in as "Movie Request Automatically Approved". Therefore, you should set your user requests to be approved automatically for this to properly function.
+     ```bash
+     http://localhost:8000/jellyseer-webhook/
+     ```
 
-![image](https://github.com/user-attachments/assets/e463fefe-750e-4576-b018-a9ad12f95a63)
+![image](https://github.com/user-attachments/assets/6afe0d6e-ade5-4748-9af1-9cdefc056201)
 
 ### 2. **Real-Debrid Account**
    - You will need a valid [Real-Debrid](https://real-debrid.com/) account to authenticate and interact with the Debrid Media Manager.
@@ -78,31 +81,15 @@ This is what you want to copy and set in your .env:
 
     {"value":"your_token","expiry":123}
 
-### 3. **Discord Bot**
-   - Create a Discord bot and invite it to your server:
-     1. Follow the [Discord Developer Portal](https://discord.com/developers/applications) to create a new application.
-     2. Add a bot to your application.
-     3. Copy the **Bot Token** and **Channel ID** where the bot will listen for commands.
-     4. Give your bot the necessary permissions (e.g., `MESSAGE_READ`, `MESSAGE_WRITE`, and `MESSAGE_CONTENT` intent).
-
-### 4. **ChromeDriver**
-   - [ChromeDriver](https://developer.chrome.com/docs/chromedriver/downloads) is required to automate browser tasks using Selenium.
+### 3. **ChromeDriver**
+   - [ChromeDriver](https://googlechromelabs.github.io/chrome-for-testing/) is required to automate browser tasks using Selenium.
      - Ensure that the version of ChromeDriver matches your installed version of Google Chrome.
        - Download it manually and provide the path in your `.env` file.
 
-### 5. **Python 3.10.11+**
+### 4. **Python 3.10.11+**
    - The bot requires **Python 3.10.11** or higher. You can download Python from [here](https://www.python.org/downloads/).
-   - Ensure that `pip` (Python's package installer) is installed and up-to-date by running:
-     ```bash
-     python -m ensurepip --upgrade
-     ```
 
-### 6. **Required Python Libraries**
-   - The following Python libraries are required and will be installed automatically if you run the `pip install` command:
-     - `discord.py`
-     - `selenium`
-     - `python-dotenv`
-     - `webdriver-manager`
+### 5. **Required Python Libraries**
    - You can install the required libraries by running:
      ```bash
      pip install -r requirements.txt
@@ -112,49 +99,23 @@ This is what you want to copy and set in your .env:
 
 ### Example `.env` File
 
-Create a `.env` file in the root directory of the project and add the following environment variables:
+Create a `.env` (or rename the example .env) file in the root directory of the project and add the following environment variables:
 
 ```bash
-DISCORD_TOKEN=your-discord-bot-token
-DISCORD_CHANNEL_ID=your-discord-channel-id
 CHROMEDRIVER_PATH=path-to-chromedriver
-RD_ACCESS_TOKEN={"value":"your_token","expiry":123}
+RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789}
+TRAKT_API_KEY=YOUR_TRAKT_TOKEN
+OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
+OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
 ```
 
 ---
 
 ## 🛠️ Getting Started
 
-### Sending Notifications to Discord from Jellyseerr
+### Sending Notifications to SeerrBridge from Jellyseerr / Overseerr
 
-If you are not already sending notifications, follow the [JellySeerr documention](https://docs.jellyseerr.dev/using-jellyseerr/notifications/discord) configure accordingly.
-
-### Discord Bot Setup
-
-1. Login to Discord Developer [here](https://discord.com/developers/applications/).
-
-2. Create a new application and give it a name
-
-![image](https://github.com/user-attachments/assets/4a61324c-ec26-4cfa-8806-0994368e4301)
-![image](https://github.com/user-attachments/assets/444f1de1-2097-49bd-913a-10af20b352b8)
-
-3. Navigate to "Bot" and grab the Token by hitting "Reset Token" and jot this down, securely, for later.
-
-![image](https://github.com/user-attachments/assets/bdccc112-704d-45f0-94b0-68f1b4c70a44)
-![image](https://github.com/user-attachments/assets/e53f8489-fc2f-4147-9aac-be8d87e6cec7)
-
-4. Under the same Bot page, scroll and enable all of the intents (not sure if they are all needed, just what I am doing)
-
-![image](https://github.com/user-attachments/assets/dd4cdcba-73ca-4a41-be15-8da6d1cc0066)
-
-
-5. Go to the "Installation" Tab, add the needed permissions as shown, copy the url, save changes, and add the bot to your server
-
-![image](https://github.com/user-attachments/assets/6a3e66fa-bba0-430e-8efe-432e64b00cd8)
-
-6. Add the bot into the Discord channel you have JellySeerr notifications going into. Add the channel ID & token we saved earlier into your .env file.
-
-![image](https://github.com/user-attachments/assets/4d7a00f4-245d-4a7c-be5b-fd0277d45f36)
+Configure your webhook as mentioned above so SeerrBridge can ingest and process approval requests.
 
 
 ### Python Environment
@@ -179,24 +140,24 @@ If you are not already sending notifications, follow the [JellySeerr documention
 
 - [ ] **Faster Processing**: Implement concurrency to handle multiple requests simultaneously.
 - [ ] **TV Show Support**: Extend functionality to handle TV series and episodes.
-- [ ] **Jellyseer/Overseer API Integration**: Direct integration with Jellyseer/Overseer API for smoother automation and control.
 - [ ] **DMM Token**: Ensure access token permanence/refresh
-- [x] **Title Parsing**: Ensure torrent titles/names are properly matched and handles different languages.
+- [x] **Jellyseer/Overseer API Integration**: Direct integration with Jellyseer/Overseer API for smoother automation and control.
+- [x] **Title Parsing**: Ensure torrent titles/names are properly matched and handle different languages.
 
 ---
 
 ## 🔍 How It Works
 
-1. **Discord Integration**: SeerrBridge listens for movie requests in a designated Discord channel.
+1. **Seerr Webhook**: SeerrBridge listens for movie requests via the configured webhook.
 2. **Automated Search**: It uses Selenium to automate the search for movies on Debrid Media Manager site.
 3. **Torrent Fetching**: Once a matching torrent is found, SeerrBridge automates the Real-Debrid download process.
 4. **Queue Management**: Requests are added to a queue and processed one by one, ensuring smooth and efficient operation.
 
-If you want to see the automation working in realtime, you can edit the code and add a # to the headless line
+If you want to see the automation working in real-time, you can edit the code and add a # to the headless line
 
 ![image](https://github.com/user-attachments/assets/97bcd9c4-8a0b-4410-ad22-4c636a4c350f)
 
-This will launch a visible Chrome browser. Be sure not to mess with it while its operating or else you will break the current action / script and need a re-run.
+This will launch a visible Chrome browser. Be sure not to mess with it while it's operating or else you will break the current action/script and need a re-run.
 
 Example:
 
