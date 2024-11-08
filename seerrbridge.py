@@ -90,7 +90,7 @@ async def initialize_browser():
         logger.info("Starting persistent browser session.")
 
         options = Options()
-        #options.add_argument('--headless')  # Run browser in headless mode
+        options.add_argument('--headless')  # Run browser in headless mode
         options.add_argument('--disable-gpu')  # Disable GPU to save resources
 
         chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
