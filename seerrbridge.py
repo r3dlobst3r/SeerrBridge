@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2.2}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -12,7 +12,6 @@ import asyncio
 import json
 import time
 import os
-import logging
 import sys
 import urllib.parse
 import re
@@ -29,18 +28,15 @@ from asyncio import Queue
 from datetime import datetime, timedelta
 from discord.ext import tasks
 from deep_translator import GoogleTranslator
+from fuzzywuzzy import fuzz
+from loguru import logger
 
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s:%(name)s: %(message)s',
-    handlers=[
-        logging.FileHandler("seerbridge.log", encoding='utf-8'),  # Use utf-8 encoding for log file
-        logging.StreamHandler(sys.stdout)  # Ensure stdout can handle Unicode
-    ]
-)
-logger = logging.getLogger(__name__)
+# Configure loguru
+logger.remove()  # Remove default handler
+logger.add("seerbridge.log", rotation="500 MB", encoding='utf-8')  # Use utf-8 encoding for log file
+logger.add(sys.stdout, colorize=True)  # Ensure stdout can handle Unicode
+logger.level("WARNING", color="<cyan>")
 
 # Load environment variables
 load_dotenv()
@@ -107,11 +103,11 @@ async def initialize_browser():
             })
           """
         })
-        logger.info("Initialized Selenium WebDriver.")
+        logger.success("Initialized Selenium WebDriver.")
 
         # Navigate to Debrid Media Manager
         driver.get("https://debridmediamanager.com")
-        logger.info("Navigated to Debrid Media Manager start page.")
+        logger.success("Navigated to Debrid Media Manager start page.")
 
         # Inject Real-Debrid access token and other credentials into local storage
         driver.execute_script(f"""
@@ -121,7 +117,7 @@ async def initialize_browser():
 
         # Refresh the page to apply the local storage values
         driver.refresh()
-        logger.info("Refreshed the page to apply local storage values.")
+        logger.success("Refreshed the page to apply local storage values.")
         # After refreshing, call the login function to click the login button
         login(driver)
         # After successful login, click on "⚙️ Settings" to open the settings popup
@@ -159,7 +155,7 @@ async def initialize_browser():
                 EC.element_to_be_clickable((By.XPATH, "//button[@class='swal2-confirm !bg-blue-600 !px-6 haptic swal2-styled']"))
             )
             save_button.click()
-            logger.info("Clicked 'OK' to save settings.")
+            logger.success("Clicked 'Save' to save settings.")
 
         except (TimeoutException, NoSuchElementException) as ex:
 
@@ -175,20 +171,20 @@ async def initialize_browser():
             library_element = WebDriverWait(driver, 2).until(
                 EC.presence_of_element_located((By.XPATH, "//div[@id='library-content']"))  # Adjust the XPath as necessary
             )
-            logger.info("Library section loaded successfully.")
+            logger.success("Library section loaded successfully.")
         except TimeoutException:
-            logger.error("Library loading.")
+            logger.info("Library loading.")
 
         # Wait for at least 2 seconds on the library page
         logger.info("Waiting for 2 seconds on the library page.")
         time.sleep(2)
-        logger.info("Completed waiting on the library page.")
+        logger.success("Completed waiting on the library page.")
 
 async def shutdown_browser():
     global driver
     if driver:
         driver.quit()
-        logger.info("Selenium WebDriver closed.")
+        logger.warning("Selenium WebDriver closed.")
         driver = None
 
 ### Function to process requests from the queue
@@ -199,7 +195,7 @@ async def process_requests():
         try:
             await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request
         except Exception as ex:
-            logger.error(f"Error processing movie request {movie_title}: {ex}")
+            logger.critical(f"Error processing movie request {movie_title}: {ex}")
         finally:
             request_queue.task_done()  # Mark the request as done
 
@@ -214,11 +210,17 @@ async def add_request_to_queue(movie_title):
     return True
 
 ### Helper function to extract year from a string
-def extract_year(text):
-    match = re.search(r'\d{4}', text)
+def extract_year(text, ignore_resolution=False):
+    if ignore_resolution:
+        # Remove resolution strings like "2160p"
+        text = re.sub(r'\b\d{3,4}p\b', '', text)
+    
+    # Extract the year using a regular expression
+    match = re.search(r'\b(19\d{2}|20\d{2})\b', text)
     if match:
         return int(match.group(0))
     return None
+
 
 # Initialize the inflect engine for number-word conversion
 p = inflect.engine()
@@ -257,6 +259,12 @@ def normalize_title(title, target_lang='en'):
     Normalizes the title by ensuring there are no unnecessary spaces or dots,
     translating it to the target language, and converting to lowercase.
     """
+    # Replace ellipsis with three periods
+    title = title.replace('…', '...')
+    # Replace smart apostrophes with regular apostrophes
+    title = title.replace('’', "'")
+    # Further normalization can be added here if required
+    return title.strip()
     # Translate the title to the target language
     translated_title = translate_title(title, target_lang)
 
@@ -355,7 +363,7 @@ async def process_movie_requests():
                 logger.warning(f"Failed to re-add {movie_title} to the queue.")
 
 
-### Task to Recheck Every 2 Hours
+### Task to Recheck Every X Hours
 @tasks.loop(hours=2)
 async def recheck_movie_requests():
     logger.info("Rechecking movie requests from the last 30 days...")
@@ -381,12 +389,17 @@ def search_on_debrid(movie_title, driver):
     try:
         # Directly jump to the search results page after login
         driver.get(url)
-        logger.info(f"Navigated to search results page for {movie_title}.")
-        time.sleep(3)  # Allow time for search results to load
+        logger.success(f"Navigated to search results page for {movie_title}.")
+        
+        # Wait for the results page to load dynamically
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/movie/')]"))
+        )
 
-        # Clean the movie title (remove year in parentheses)
+        # Clean and normalize the movie title (remove year in parentheses)
         movie_title_cleaned = movie_title.split('(')[0].strip()
-        logger.info(f"Searching for movie title: {movie_title_cleaned}")
+        movie_title_normalized = normalize_title(movie_title_cleaned)
+        logger.info(f"Searching for normalized movie title: {movie_title_normalized}")
 
         # Find the movie result elements
         try:
@@ -400,27 +413,32 @@ def search_on_debrid(movie_title, driver):
                 movie_year_element = movie_element.find_element(By.XPATH, ".//div[contains(@class, 'text-gray-600')]")
                 
                 search_title_cleaned = movie_title_element.text.strip()
+                search_title_normalized = normalize_title(search_title_cleaned)
                 search_year = extract_year(movie_year_element.text)
 
                 # Extract the expected year from the provided movie title (if it exists)
                 expected_year = extract_year(movie_title)
 
-                # Check if the titles match and if the years are within ±1 year range
-                if search_title_cleaned.lower() == movie_title_cleaned.lower() and \
-                   (expected_year is None or abs(search_year - expected_year) <= 1):
+                # Use fuzzy matching to allow for minor differences in titles
+                title_match_ratio = fuzz.ratio(search_title_normalized.lower(), movie_title_normalized.lower())
+                logger.info(f"Comparing '{search_title_normalized}' with '{movie_title_normalized}' (Match Ratio: {title_match_ratio})")
+
+                # Check if the titles match (with a threshold) and if the years are within ±1 year range
+                if title_match_ratio >= 85 and (expected_year is None or abs(search_year - expected_year) <= 1):
                     logger.info(f"Found matching movie: {search_title_cleaned} ({search_year})")
                     
                     # Click on the parent <a> tag (which is the clickable link)
                     parent_link = movie_element
                     parent_link.click()
-                    logger.info(f"Clicked on the movie link for {search_title_cleaned}")
+                    logger.success(f"Clicked on the movie link for {search_title_cleaned}")
                     break
             else:
                 logger.error(f"No matching movie found for {movie_title_cleaned} ({expected_year})")
                 return
         except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"Failed to find or click on the search result: {movie_title}")
+            logger.critical(f"Failed to find or click on the search result: {movie_title}")
             return
+
 
         # Wait for the movie's details page to load by listening for the status message
         try:
@@ -432,10 +450,10 @@ def search_on_debrid(movie_title, driver):
                         "No results found"
                     )
                 )
-                logger.info("'No results found' message detected. Skipping further checks.")
+                logger.warning("'No results found' message detected. Skipping further checks.")
                 return  # Skip further checks if "No results found" is detected
             except TimeoutException:
-                logger.info("'No results found' message not detected. Proceeding to check for available torrents.")
+                logger.warning("'No results found' message not detected. Proceeding to check for available torrents.")
 
             try:
                 status_element = WebDriverWait(driver, 5).until(
@@ -459,17 +477,66 @@ def search_on_debrid(movie_title, driver):
 
             logger.info("Waiting for 'Checking RD availability...' to appear.")
             
-            # Step 2: Check if any red button (RD 100%) exists immediately, and skip if found
+            # Step 2: Check if any red buttons (RD 100%) exist and verify the title for each
             try:
-                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-                logger.info("Red button (100% RD) detected. Skipping this entry.")
-                return  # Skip this entry if the red button is detected
+                red_buttons_elements = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                logger.info(f"Found {len(red_buttons_elements)} red button(s) (100% RD). Verifying titles before deciding to skip.")
+
+                # Iterate through each red button and its associated title
+                for i, red_button_element in enumerate(red_buttons_elements, start=1):
+                    logger.info(f"Checking red button {i}...")
+
+                    try:
+                        # Adjusted XPath to find the <h2> element within the same parent container as the red button
+                        red_button_title_element = red_button_element.find_element(By.XPATH, ".//ancestor::div[contains(@class, 'border-2')]//h2")
+                        red_button_title_text = red_button_title_element.text.strip()
+
+                        # Clean the title for comparison
+                        red_button_title_cleaned = clean_title(red_button_title_text.split('(')[0].strip(), target_lang='en')
+                        red_button_title_normalized = normalize_title(red_button_title_text.split('(')[0].strip(), target_lang='en')
+
+                        # Clean and normalize the movie title once outside the loop
+                        movie_title_cleaned = clean_title(movie_title.split('(')[0].strip(), target_lang='en')
+                        movie_title_normalized = normalize_title(movie_title.split('(')[0].strip(), target_lang='en')
+
+                        logger.info(f"Red button {i} title: {red_button_title_cleaned}, Expected movie title: {movie_title_cleaned}")
+
+                        # Extract the year from the red button title, ignoring resolution strings
+                        red_button_year = extract_year(red_button_title_text, ignore_resolution=True)
+
+                        # Extract the expected year from the provided movie title (if it exists)
+                        expected_year = extract_year(movie_title)
+
+                        # Define the current year for comparison
+                        current_year = datetime.now().year
+
+                        # Compare the title in various forms (cleaned, normalized, etc.)
+                        if (
+                            red_button_title_cleaned.startswith(movie_title_cleaned) or
+                            red_button_title_normalized.startswith(movie_title_normalized)
+                        ):
+                            # Check if the years match or if the expected year is within ±1 year range
+                            if expected_year is None or abs(red_button_year - expected_year) <= 1:
+                                # Title matches, skip further action for this entry
+                                logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
+                                return  # Exit the function as we've found a matching red button
+                            else:
+                                logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
+                                continue
+                        else:
+                            # Title does not match, log and continue to the next red button
+                            logger.info(f"Title mismatch with red button {i}: {red_button_title_cleaned}. Continuing to check other boxes.")
+                    
+                    except NoSuchElementException as e:
+                        logger.warning(f"Could not find title associated with red button {i}: {e}")
+                        continue  # If a title is not found for a red button, continue to the next one
+
             except NoSuchElementException:
-                logger.info("No red button (100% RD) detected. Proceeding with 'Checking RD availability...'.")
+                logger.info("No red buttons (100% RD) detected. Proceeding with 'Checking RD availability...'.")
 
             # Step 3: Wait for the "Checking RD availability..." message to disappear
             try:
-                WebDriverWait(driver, 30).until_not(
+                WebDriverWait(driver, 15).until_not(
                     EC.text_to_be_present_in_element(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite')]"),
                         "Checking RD availability"
@@ -477,11 +544,11 @@ def search_on_debrid(movie_title, driver):
                 )
                 logger.info("'Checking RD availability...' has disappeared. Now waiting for RD results.")
             except TimeoutException:
-                logger.warning("'Checking RD availability...' did not disappear within 30 seconds. Proceeding to the next steps.")
+                logger.warning("'Checking RD availability...' did not disappear within 15 seconds. Proceeding to the next steps.")
 
             # Step 4: Wait for the "Found X available torrents in RD" message
             try:
-                status_element = WebDriverWait(driver, 30).until(
+                status_element = WebDriverWait(driver, 15).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
@@ -499,7 +566,7 @@ def search_on_debrid(movie_title, driver):
 
                 if torrents_match:
                     torrents_count = int(torrents_match.group(1))
-                    logger.info(f"Found {torrents_count} available torrents in RD.")
+                    logger.success(f"Found {torrents_count} available torrents in RD.")
                 else:
                     logger.warning("Could not find the expected 'Found X available torrents in RD' message. Proceeding to check for Instant RD.")
                     torrents_count = 0  # Default to 0 torrents if no match found
@@ -509,17 +576,66 @@ def search_on_debrid(movie_title, driver):
 
             # Step 6: If the status says "0 torrents", check if there's still an Instant RD button
             if torrents_count == 0:
-                logger.info("No torrents found in RD according to status, but checking for Instant RD buttons.")
+                logger.warning("No torrents found in RD according to status, but checking for Instant RD buttons.")
             else:
-                logger.info(f"{torrents_count} torrents found in RD. Proceeding with RD checks.")
+                logger.success(f"{torrents_count} torrents found in RD. Proceeding with RD checks.")
             
             # Step 7: Check if any red button (RD 100%) exists again before continuing
             try:
-                red_button = driver.find_element(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-                logger.info("Red button (100% RD) detected after RD check. Skipping this entry.")
-                return  # Skip this entry if the red button is detected
+                red_buttons_elements = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                logger.info(f"Found {len(red_buttons_elements)} red button(s) (100% RD). Verifying titles before deciding to skip.")
+
+                # Iterate through each red button and its associated title
+                for i, red_button_element in enumerate(red_buttons_elements, start=1):
+                    logger.info(f"Checking red button {i}...")
+
+                    try:
+                        # Adjusted XPath to find the <h2> element within the same parent container as the red button
+                        red_button_title_element = red_button_element.find_element(By.XPATH, ".//ancestor::div[contains(@class, 'border-2')]//h2")
+                        red_button_title_text = red_button_title_element.text.strip()
+
+                        # Clean the title for comparison
+                        red_button_title_cleaned = clean_title(red_button_title_text.split('(')[0].strip(), target_lang='en')
+                        red_button_title_normalized = normalize_title(red_button_title_text.split('(')[0].strip(), target_lang='en')
+
+                        # Clean and normalize the movie title once outside the loop
+                        movie_title_cleaned = clean_title(movie_title.split('(')[0].strip(), target_lang='en')
+                        movie_title_normalized = normalize_title(movie_title.split('(')[0].strip(), target_lang='en')
+
+                        logger.info(f"Red button {i} title: {red_button_title_cleaned}, Expected movie title: {movie_title_cleaned}")
+
+                        # Extract the year from the red button title, ignoring resolution strings
+                        red_button_year = extract_year(red_button_title_text, ignore_resolution=True)
+
+                        # Extract the expected year from the provided movie title (if it exists)
+                        expected_year = extract_year(movie_title)
+
+                        # Define the current year for comparison
+                        current_year = datetime.now().year
+
+                        # Compare the title in various forms (cleaned, normalized, etc.)
+                        if (
+                            red_button_title_cleaned.startswith(movie_title_cleaned) or
+                            red_button_title_normalized.startswith(movie_title_normalized)
+                        ):
+                            # Check if the years match or if the expected year is within ±1 year range
+                            if expected_year is None or abs(red_button_year - expected_year) <= 1:
+                                # Title matches, skip further action for this entry
+                                logger.warning(f"Title matches with red button {i}: {red_button_title_cleaned}. Skipping this entry.")
+                                return  # Exit the function as we've found a matching red button
+                            else:
+                                logger.warning(f"Year mismatch with red button {i}: {red_button_year} (Expected: {expected_year}). Skipping.")
+                                continue
+                        else:
+                            # Title does not match, log and continue to the next red button
+                            logger.info(f"Title mismatch with red button {i}: {red_button_title_cleaned}. Continuing to check other boxes.")
+                    
+                    except NoSuchElementException as e:
+                        logger.warning(f"Could not find title associated with red button {i}: {e}")
+                        continue  # If a title is not found for a red button, continue to the next one
+
             except NoSuchElementException:
-                logger.info("No red button (100% RD) detected. Proceeding with Instant RD check.")
+                logger.info("No red buttons (100% RD) detected. Proceeding with 'Checking RD availability...'.")
 
             # After clicking the matched movie title, we now check the popup boxes for Instant RD buttons
             # Step 8: Check the result boxes with the specified class for "Instant RD"
@@ -577,20 +693,20 @@ def search_on_debrid(movie_title, driver):
                             title_text_cleaned_digit.startswith(movie_title_cleaned_digit) or
                             title_text_normalized_digit.startswith(movie_title_normalized_digit)
                         ):
-                            logger.info(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
+                            logger.warning(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
                             continue  # Skip this box if none of the variations match
 
 
                         # Compare the year with the expected year (allow ±1 year)
                         expected_year = extract_year(movie_title)
                         if expected_year is not None and abs(box_year - expected_year) > 1:
-                            logger.info(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
+                            logger.warning(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
                             continue  # Skip this box if the year doesn't match
 
                         # Try to locate the Instant RD button using the button's class
                         instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
                         instant_rd_button.click()
-                        logger.info(f"Clicked 'Instant RD' in box {i} for {title_text} ({box_year}).")
+                        logger.success(f"Clicked 'Instant RD' in box {i} for {title_text} ({box_year}).")
                         time.sleep(2)
 
                         # After clicking, check if the button has changed to "RD (0%)" or "RD (100%)"
@@ -609,7 +725,7 @@ def search_on_debrid(movie_title, driver):
 
                             # If it's "RD (100%)", we are done with this entry
                             if "RD (100%)" in rd_button_text:
-                                logger.info(f"RD (100%) button detected. {i} {title_text}. This entry is complete.")
+                                logger.success(f"RD (100%) button detected. {i} {title_text}. This entry is complete.")
                                 break  # Break out of the loop since the task is complete
 
                         except TimeoutException:
@@ -632,7 +748,7 @@ def search_on_debrid(movie_title, driver):
 
 
     except Exception as ex:
-        logger.error(f"Error during Selenium automation: {ex}")
+        logger.critical(f"Error during Selenium automation: {ex}")
 
 
 ### Discord Bot Logic
@@ -640,18 +756,32 @@ def search_on_debrid(movie_title, driver):
 async def on_ready():
     global processing_task
     logger.info(f'Bot logged in as {client.user}')
-    await initialize_browser()  # Initialize the browser when the bot is ready
     
-    if processing_task is None:  # Start the request processing task if not already started
+    # Always initialize the browser when the bot is ready
+    await initialize_browser()
+
+    # Start the request processing task if not already started
+    if processing_task is None:
         processing_task = asyncio.create_task(process_requests())
         logger.info("Started request processing task.")
     
-    # Start the initial check for the last 30 days
-    #await process_movie_requests()
+    # Ask user if they want to proceed with the last part
+    user_input = input("Do you want to start the initial check and recurring task? (y/n): ").strip().lower()
 
-    # Start the 2-hour recurring task
-    #recheck_movie_requests.start()
-    #logger.info("Started recurring task to recheck movie requests every 24 hours.")
+    if user_input == 'y':
+        # Start the initial check for the last 30 days
+        await process_movie_requests()
+
+        # Start the recurring task (every X hours)
+        recheck_movie_requests.start()
+        logger.success(f"Started recurring task to recheck movie requests every {recheck_movie_requests.hours} hours. Running first check now.")
+    
+    elif user_input == 'n':
+        logger.info("Initial check and recurring task were skipped by user input.")
+    
+    else:
+        logger.warning("Invalid input. Please restart the bot and enter 'y' or 'n'.")
+
 
 @client.event
 async def on_message(message):
