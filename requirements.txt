@@ -3,3 +3,5 @@ selenium==4.19.0
 python-dotenv==0.19.2
 inflect==7.4.0
 deep-translator==1.11.4
+loguru==0.7.2
+fuzzywuzzy==0.18.0
