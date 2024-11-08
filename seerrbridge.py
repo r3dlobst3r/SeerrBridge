@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.2.1}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -28,6 +28,8 @@ from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from asyncio import Queue
 from datetime import datetime, timedelta
 from discord.ext import tasks
+from deep_translator import GoogleTranslator
+
 
 # Configure logging
 logging.basicConfig(
@@ -92,7 +94,7 @@ async def initialize_browser():
         logger.info("Starting persistent browser session.")
 
         options = Options()
-        options.add_argument('--headless')  # Run browser in headless mode
+        #options.add_argument('--headless')  # Run browser in headless mode
         options.add_argument('--disable-gpu')  # Disable GPU to save resources
 
         chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
@@ -221,28 +223,49 @@ def extract_year(text):
 # Initialize the inflect engine for number-word conversion
 p = inflect.engine()
 
-def clean_title(title):
+def translate_title(title, target_lang='en'):
+    """
+    Detects the language of the input title and translates it to the target language.
+    """
+    try:
+        translator = GoogleTranslator(source='auto', target=target_lang)
+        translated_title = translator.translate(title)
+        logger.info(f"Translated '{title}' to '{translated_title}'")
+        return translated_title
+    except Exception as e:
+        logger.error(f"Error translating title '{title}': {e}")
+        return title  # Return the original title if translation fails
+
+
+def clean_title(title, target_lang='en'):
     """
     Cleans the movie title by removing commas, hyphens, colons, semicolons, and apostrophes,
-    and converting to lowercase. Also replaces multiple spaces with a single space.
+    translating it to the target language, and converting to lowercase.
     """
+    # Translate the title to the target language
+    translated_title = translate_title(title, target_lang)
+
     # Remove commas, hyphens, colons, semicolons, and apostrophes
-    cleaned_title = re.sub(r"[,:;'-]", '', title)
+    cleaned_title = re.sub(r"[,:;'-]", '', translated_title)
     # Replace multiple spaces with a single dot
     cleaned_title = re.sub(r'\s+', '.', cleaned_title)
     # Convert to lowercase for comparison
     return cleaned_title.lower()
 
-def normalize_title(title):
+def normalize_title(title, target_lang='en'):
     """
     Normalizes the title by ensuring there are no unnecessary spaces or dots,
-    and converts to lowercase (unclean version).
+    translating it to the target language, and converting to lowercase.
     """
+    # Translate the title to the target language
+    translated_title = translate_title(title, target_lang)
+
     # Replace multiple spaces with a single space and dots with spaces
-    normalized_title = re.sub(r'\s+', ' ', title)
+    normalized_title = re.sub(r'\s+', ' ', translated_title)
     normalized_title = normalized_title.replace('.', ' ')
     # Convert to lowercase
     return normalized_title.lower()
+
 
 def replace_numbers_with_words(title):
     """
@@ -519,12 +542,12 @@ def search_on_debrid(movie_title, driver):
                             continue
 
                         # Clean both the movie title and the box title for comparison
-                        movie_title_cleaned = clean_title(movie_title.split('(')[0].strip())
-                        title_text_cleaned = clean_title(title_text.split(str(box_year))[0].strip())
+                        movie_title_cleaned = clean_title(movie_title.split('(')[0].strip(), target_lang='en')
+                        title_text_cleaned = clean_title(title_text.split(str(box_year))[0].strip(), target_lang='en')
 
-                        # Normalize both titles for unclean comparison
-                        movie_title_normalized = normalize_title(movie_title.split('(')[0].strip())
-                        title_text_normalized = normalize_title(title_text.split(str(box_year))[0].strip())
+                        movie_title_normalized = normalize_title(movie_title.split('(')[0].strip(), target_lang='en')
+                        title_text_normalized = normalize_title(title_text.split(str(box_year))[0].strip(), target_lang='en')
+
 
                         # Convert digits to words for comparison
                         movie_title_cleaned_word = replace_numbers_with_words(movie_title_cleaned)
@@ -545,6 +568,7 @@ def search_on_debrid(movie_title, driver):
                         logger.info(f"Movie title (words to digits): {movie_title_cleaned_digit}, Box title (words to digits): {title_text_cleaned_digit}")
 
                         # Compare the title in all variations
+                        # Compare the title in all variations
                         if not (
                             title_text_cleaned.startswith(movie_title_cleaned) or
                             title_text_normalized.startswith(movie_title_normalized) or
@@ -555,6 +579,7 @@ def search_on_debrid(movie_title, driver):
                         ):
                             logger.info(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
                             continue  # Skip this box if none of the variations match
+
 
                         # Compare the year with the expected year (allow ±1 year)
                         expected_year = extract_year(movie_title)
