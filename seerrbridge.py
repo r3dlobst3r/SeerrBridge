@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2.1}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -8,7 +8,7 @@
 # © 2024
 # -----------------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from pydantic import BaseModel, Field, ValidationError, validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from typing import Optional, List, Dict, Any
 import asyncio
 import json
@@ -79,11 +79,12 @@ processing_task = None  # To track the current processing task
 class MediaInfo(BaseModel):
     media_type: str
     tmdbId: int
-    tvdbId: Optional[int] = None  # Allow tvdbId to be None
+    tvdbId: Optional[int] = Field(default=None, alias='tvdbId')
     status: str
     status4k: str
 
-    @validator('tvdbId', pre=True)
+    @field_validator('tvdbId', mode='before')
+    @classmethod
     def empty_string_to_none(cls, value):
         if value == '':
             return None
