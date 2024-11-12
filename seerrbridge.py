@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -49,6 +49,9 @@ app = FastAPI()
 
 # Securely load credentials from environment variables
 RD_ACCESS_TOKEN = os.getenv('RD_ACCESS_TOKEN')
+RD_REFRESH_TOKEN = os.getenv('RD_REFRESH_TOKEN')
+RD_CLIENT_ID = os.getenv('RD_CLIENT_ID')
+RD_CLIENT_SECRET = os.getenv('RD_CLIENT_SECRET')
 OVERSEERR_BASE = os.getenv('OVERSEERR_BASE')
 OVERSEERR_API_BASE_URL = f"{OVERSEERR_BASE}/api/v1"
 OVERSEERR_API_KEY = os.getenv('OVERSEERR_API_KEY')
@@ -123,6 +126,89 @@ class WebhookPayload(BaseModel):
     issue: Optional[IssueInfo] = None  # Allow issue to be None
     comment: Optional[CommentInfo] = None  # Allow comment to be None
     extra: List[Dict[str, Any]] = []
+
+def refresh_access_token():
+    global RD_REFRESH_TOKEN, RD_ACCESS_TOKEN, driver
+
+    TOKEN_URL = "https://api.real-debrid.com/oauth/v2/token"
+
+    # Prepare token refresh request payload
+    data = {
+        'client_id': RD_CLIENT_ID,
+        'client_secret': RD_CLIENT_SECRET,
+        'code': RD_REFRESH_TOKEN,
+        'grant_type': 'http://oauth.net/grant_type/device/1.0'
+    }
+
+    try:
+        logger.info("Requesting a new access token with the refresh token.")
+        response = requests.post(TOKEN_URL, data=data)
+        response_data = response.json()
+
+        if response.status_code == 200:
+            # Calculate new expiry time (24 hours from now) in milliseconds
+            expiry_time = int((datetime.now() + timedelta(hours=24)).timestamp() * 1000)
+
+            # Update the access token with new expiry time
+            RD_ACCESS_TOKEN = json.dumps({
+                "value": response_data['access_token'],
+                "expiry": expiry_time
+            })
+            logger.success("Successfully refreshed access token.")
+            update_env_file()  # Update the .env file with the new token
+
+            # Update local storage with the new token
+            if driver:
+                driver.execute_script(f"""
+                    localStorage.setItem('rd:accessToken', '{RD_ACCESS_TOKEN}');
+                """)
+                logger.info("Updated Real-Debrid credentials in local storage after token refresh.")
+
+                # Refresh the page to apply the local storage values
+                driver.refresh()
+                logger.success("Refreshed the page after updating local storage with the new token.")
+
+        else:
+            logger.error(f"Failed to refresh access token: {response_data.get('error_description', 'Unknown error')}")
+    except Exception as e:
+        logger.error(f"Error refreshing access token: {e}")
+
+def update_env_file():
+    """Update the .env file with the new access token."""
+    with open('.env', 'r') as file:
+        lines = file.readlines()
+
+    with open('.env', 'w') as file:
+        for line in lines:
+            if line.startswith('RD_ACCESS_TOKEN'):
+                # Update the existing access token line
+                file.write(f'RD_ACCESS_TOKEN={RD_ACCESS_TOKEN}\n')
+            else:
+                file.write(line)
+
+def check_and_refresh_access_token():
+    """Check if the access token is expired or about to expire and refresh it if necessary."""
+    global RD_ACCESS_TOKEN
+    if RD_ACCESS_TOKEN:
+        token_data = json.loads(RD_ACCESS_TOKEN)
+        expiry_time = token_data['expiry']  # This is in milliseconds
+        current_time = int(time.time() * 1000)  # Convert current time to milliseconds
+
+        # Convert expiry time to a readable date format
+        expiry_date = datetime.fromtimestamp(expiry_time / 1000).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Print the expiry date
+        logger.info(f"Access token will expire on: {expiry_date}")
+
+        # Check if the token is about to expire in the next 10 minutes (600000 milliseconds)
+        if current_time >= expiry_time - 600000:  # 600000 milliseconds = 10 minutes
+            logger.info("Access token is about to expire. Refreshing...")
+            refresh_access_token()
+        else:
+            logger.info("Access token is still valid.")
+    else:
+        logger.error("Access token is not set. Requesting a new token.")
+        refresh_access_token()
 
 ### Helper function to handle login
 def login(driver):
@@ -947,12 +1033,20 @@ async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks)
     
     return {"status": "success", "movie_title": movie_details['title'], "movie_year": movie_details['year']}
 
+def schedule_token_refresh():
+    """Schedule the token refresh every 10 minutes."""
+    scheduler.add_job(check_and_refresh_access_token, 'interval', minutes=10)
+    logger.info("Scheduled token refresh every 10 minutes.")
+
 ### Background Task to Process Overseerr Requests Periodically ###
 @app.on_event("startup")
 async def startup_event():
     global processing_task
     logger.info('Starting SeerrBridge...')
-    
+
+    # Check and refresh access token before any other initialization
+    check_and_refresh_access_token()
+
     # Always initialize the browser when the bot is ready
     try:
         await initialize_browser()
@@ -965,6 +1059,9 @@ async def startup_event():
         processing_task = asyncio.create_task(process_requests())
         logger.info("Started request processing task.")
 
+    # Schedule the token refresh
+    schedule_token_refresh()
+    scheduler.start()
     # Ask user if they want to proceed with the initial check and recurring task
     user_input = await get_user_input()
 
@@ -987,10 +1084,10 @@ async def startup_event():
     else:
         logger.warning("Invalid input. Please restart the bot and enter 'y' or 'n'.")
 
+
 def schedule_recheck_movie_requests():
     # Correctly schedule the job with an interval of 2 hours
     scheduler.add_job(process_movie_requests, 'interval', hours=2)
-    scheduler.start()
     logger.info("Scheduled rechecking movie requests every 2 hours.")
 
 
