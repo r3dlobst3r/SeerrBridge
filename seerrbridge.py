@@ -189,6 +189,9 @@ def update_env_file():
 def check_and_refresh_access_token():
     """Check if the access token is expired or about to expire and refresh it if necessary."""
     global RD_ACCESS_TOKEN
+    RD_ACCESS_TOKEN = None  # Reset before reloading
+    load_dotenv(override=True)
+    RD_ACCESS_TOKEN = os.getenv('RD_ACCESS_TOKEN')
     if RD_ACCESS_TOKEN:
         token_data = json.loads(RD_ACCESS_TOKEN)
         expiry_time = token_data['expiry']  # This is in milliseconds
