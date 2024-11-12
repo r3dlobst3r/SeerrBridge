@@ -73,13 +73,13 @@ Before you can run this script, ensure that you have the following prerequisites
 
 ### 2. **Real-Debrid Account**
    - You will need a valid [Real-Debrid](https://real-debrid.com/) account to authenticate and interact with the Debrid Media Manager.
-     - The Debrid Media Manager Accesss token is used and should be set within your .env file. Grab this from your browser via Inspect > 
+     - The Debrid Media Manager Access token, Client ID, Client Secret, & Refresh Tokens are used and should be set within your .env file. Grab this from your browser via Inspect > 
 
-![image](https://github.com/user-attachments/assets/442247db-1b27-4b32-b737-19c3ccf3b07b)
+![image](https://github.com/user-attachments/assets/c718851c-60d4-4750-b020-a3edb990b53b)
 
-This is what you want to copy and set in your .env:
+This is what you want to copy from your local storage and set in your .env:
 
-    {"value":"your_token","expiry":123}
+    {"value":"your_token","expiry":123} | YOUR_CLIENT_ID | YOUR_CLIENT_SECRET | YOUR_REFRESH_TOKEN
 
 ### 3. **ChromeDriver**
    - [ChromeDriver](https://googlechromelabs.github.io/chrome-for-testing/) is required to automate browser tasks using Selenium.
