@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2.2}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -26,7 +26,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from dotenv import load_dotenv
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, TimeoutException
 from asyncio import Queue
 from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
@@ -293,7 +293,7 @@ async def initialize_browser():
             default_filter_input.clear()  # Clear any existing filter
 
             # Add custom Regex here
-            default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).* videos:1")
+            default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
 
             logger.info("Inserted regex into 'Default torrents filter' input box.")
 
@@ -587,6 +587,104 @@ def mark_completed(media_id: int, tmdb_id: int) -> bool:
     except json.JSONDecodeError as e:
         logger.error(f"Failed to decode JSON response for media {media_id}: {str(e)}")
         return False
+
+
+def prioritize_buttons_in_box(result_box):
+    """
+    Prioritize buttons within a result box. Clicks the 'Instant RD' or 'DL with RD' button
+    if available. Handles stale element references by retrying the operation once.
+
+    Args:
+        result_box (WebElement): The result box element.
+
+    Returns:
+        bool: True if a button was successfully clicked and handled, False otherwise.
+    """
+    try:
+        # Attempt to locate the 'Instant RD' button
+        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
+        logger.info("Located 'Instant RD' button.")
+
+        # Attempt to click the button and wait for a state change
+        if attempt_button_click_with_state_check(instant_rd_button, result_box):
+            return True
+
+    except NoSuchElementException:
+        logger.info("'Instant RD' button not found. Checking for 'DL with RD' button.")
+
+    except StaleElementReferenceException:
+        logger.warning("Stale element reference encountered for 'Instant RD' button. Retrying...")
+        # Retry once by re-locating the button
+        try:
+            instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
+            if attempt_button_click_with_state_check(instant_rd_button, result_box):
+                return True
+        except Exception as e:
+            logger.error(f"Retry failed for 'Instant RD' button due to: {e}")
+
+    try:
+        # If the 'Instant RD' button is not found, try to locate the 'DL with RD' button
+        dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+        logger.info("Located 'DL with RD' button.")
+
+        # Attempt to click the button and wait for a state change
+        if attempt_button_click_with_state_check(dl_with_rd_button, result_box):
+            return True
+
+    except NoSuchElementException:
+        logger.warning("Neither 'Instant RD' nor 'DL with RD' button found in this box.")
+
+    except StaleElementReferenceException:
+        logger.warning("Stale element reference encountered for 'DL with RD' button. Retrying...")
+        # Retry once by re-locating the button
+        try:
+            dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+            if attempt_button_click_with_state_check(dl_with_rd_button, result_box):
+                return True
+        except Exception as e:
+            logger.error(f"Retry failed for 'DL with RD' button due to: {e}")
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred while prioritizing buttons: {e}")
+
+    return False
+
+
+def attempt_button_click_with_state_check(button, result_box):
+    """
+    Attempts to click a button and waits for its state to change.
+
+    Args:
+        button (WebElement): The button element to click.
+        result_box (WebElement): The parent result box (used for context).
+
+    Returns:
+        bool: True if the button's state changes, False otherwise.
+    """
+    try:
+        # Get the initial state of the button
+        initial_state = button.get_attribute("class")  # Or another attribute relevant to the state
+        logger.info(f"Initial button state: {initial_state}")
+
+        # Click the button
+        button.click()
+        logger.info("Clicked the button.")
+
+        # Wait for a short period (max 2 seconds) to check for changes in the state
+        WebDriverWait(result_box, 2).until(
+            lambda driver: button.get_attribute("class") != initial_state
+        )
+        logger.info("Button state changed successfully after clicking.")
+        return True  # Button was successfully clicked and handled
+
+    except TimeoutException:
+        logger.warning("No state change detected after clicking the button within 2 seconds.")
+
+    except StaleElementReferenceException:
+        logger.error("Stale element reference encountered while waiting for button state change.")
+
+    return False
+
 
 
 
@@ -933,11 +1031,12 @@ def search_on_debrid(movie_title, driver):
                             logger.warning(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
                             continue  # Skip this box if the year doesn't match
 
-                        # Try to locate the Instant RD button using the button's class
-                        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
-                        instant_rd_button.click()
-                        logger.success(f"Clicked 'Instant RD' in box {i} for {title_text} ({box_year}).")
-                        time.sleep(2)
+                        # After navigating to the movie details page and verifying the title/year
+                        if prioritize_buttons_in_box(result_box):
+                            logger.info(f"Successfully handled buttons in box {i}.")
+                            confirmation_flag = True  # Mark confirmation as successful
+                        else:
+                            logger.warning(f"Failed to handle buttons in box {i}. Skipping.")
 
                         # After clicking, check if the button has changed to "RD (0%)" or "RD (100%)"
                         try:
