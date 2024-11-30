@@ -4,7 +4,7 @@ services:
   seerrbridge:
     build: .
     ports:
-      - "8000:8000"
+      - "8777:8777"
     env_file:
       - .env
     volumes:
