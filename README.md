@@ -110,6 +110,8 @@ RD_CLIENT_SECRET=YOUR_CLIENT_SECRET
 TRAKT_API_KEY=YOUR_TRAKT_TOKEN
 OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
 OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
+HEADLESS_MODE=true
+TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
 ```
 
 ---
@@ -164,6 +166,8 @@ Configure your webhook as mentioned above so SeerrBridge can ingest and process 
     TRAKT_API_KEY=YOUR_TRAKT_TOKEN
     OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
     OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
+    HEADLESS_MODE=true
+    TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
     ```
 
 3. Start the container:
@@ -192,6 +196,8 @@ docker run -d \
   -e TRAKT_API_KEY=YOUR_TRAKT_TOKEN \
   -e OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN \
   -e OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM \
+  -e HEADLESS_MODE=true \
+  -e TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).* \
   ghcr.io/woahai321/seerrbridge:main
 ```
 ---
@@ -218,9 +224,9 @@ That's it! Your **SeerrBridge** container should now be up and running. 🚀
 3. **Torrent Fetching**: Once a matching torrent is found, SeerrBridge automates the Real-Debrid download process.
 4. **Queue Management**: Requests are added to a queue and processed one by one, ensuring smooth and efficient operation.
 
-If you want to see the automation working in real-time, you can edit the code and add a # to the headless line
+If you want to see the automation working in real-time, you can edit the .env and set it to false
 
-![image](https://github.com/user-attachments/assets/97bcd9c4-8a0b-4410-ad22-4c636a4c350f)
+![image](https://github.com/user-attachments/assets/dc1e9cdb-ff59-41fa-8a71-ccbff0f3c210)
 
 This will launch a visible Chrome browser. Be sure not to mess with it while it's operating or else you will break the current action/script and need a re-run.
 
@@ -239,7 +245,7 @@ This script includes support for **custom regex filtering**, allowing you to fil
 The currently used regex is:
 
 ```python
-"^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*"
+^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
 ```
 
 #### What It Does:
@@ -257,7 +263,7 @@ This is a broad exclusion-based filter that removes unwanted patterns without re
 If you'd like to refine the filter further to only match items containing **1080p** or **2160p**, you can use the following optional regex:
 
 ```python
-"^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*"
+^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
 ```
 
 #### What It Does:
@@ -268,23 +274,20 @@ If you'd like to refine the filter further to only match items containing **1080
 
 ### How to Use
 
-To switch between the default and optional regex, simply update the `default_filter_input.send_keys` line in your code:
+To switch between the default and optional regex, simply update the `.env` file:
 
 - **Default Regex**:
     ```python
-    default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+    ^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
     ```
 
 - **Optional Regex**:
     ```python
-    default_filter_input.send_keys("^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+    ^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
     ```
 
 This gives you flexibility to define what gets filtered, based on your preferred criteria.
 
-Here is a simplified version without the explanations of "what it does":
-
----
 
 ## 📜 List of Regex Examples
 
