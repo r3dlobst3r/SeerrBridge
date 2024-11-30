@@ -66,7 +66,7 @@ Before you can run this script, ensure that you have the following prerequisites
   - You will navigate to Settings > Notifications > Webhook > Turn it on, and configure as shown below
 
      ```bash
-     http://localhost:8000/jellyseer-webhook/
+     http://localhost:8777/jellyseer-webhook/
      ```
 
 ![image](https://github.com/user-attachments/assets/6afe0d6e-ade5-4748-9af1-9cdefc056201)
@@ -175,7 +175,7 @@ Configure your webhook as mentioned above so SeerrBridge can ingest and process 
     docker-compose up -d
     ```
 
-4. Access the app at: [http://localhost:8000](http://localhost:8000).
+4. Access the app at: [http://localhost:8777](http://localhost:8777).
 
 ---
 
@@ -186,7 +186,7 @@ Skip Compose and run the container directly:
 ```bash
 docker run -d \
   --name seerrbridge \
-  -p 8000:8000 \
+  -p 8777:8777 \
   -v $(pwd)/config:/app/config \
   -e CHROMEDRIVER_PATH=path-to-chromedriver \
   -e RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789} \
