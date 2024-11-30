@@ -230,6 +230,60 @@ Example:
 
 ---
 
+## 🎯 Custom Regex Filtering
+
+This script includes support for **custom regex filtering**, allowing you to filter out unwanted items and refine the results based on specific patterns. The regex is automatically added when the script runs, and you can customize it directly in the code.
+
+### Default Regex
+
+The currently used regex is:
+
+```python
+"^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*"
+```
+
+#### What It Does:
+- **Exclude Items with `【...】`**: `(?!.*【.*?】)` removes items with formatted text in this style.
+- **Exclude Cyrillic Characters**: `(?!.*[\u0400-\u04FF])` removes items containing characters from Cyrillic scripts (e.g., Russian text).
+- **Exclude Items with `[esp]`**: `(?!.*\[esp\])` removes items explicitly marked as `[esp]` (often denoting Spanish content).
+- **Match All Other Content**: `.*` ensures the filter applies to the rest of the string.
+
+This is a broad exclusion-based filter that removes unwanted patterns without requiring specific inclusions.
+
+---
+
+### Optional Regex (Filtering by Resolution)
+
+If you'd like to refine the filter further to only match items containing **1080p** or **2160p**, you can use the following optional regex:
+
+```python
+"^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*"
+```
+
+#### What It Does:
+- **Include Only Items with `1080p` or `2160p`**: `(?=.*(1080p|2160p))` ensures that only items with these resolutions are processed.
+- The rest of the filter (**exclude `【...】`, Cyrillic characters, or `[esp]`**) works the same as in the default regex.
+
+---
+
+### How to Use
+
+To switch between the default and optional regex, simply update the `default_filter_input.send_keys` line in your code:
+
+- **Default Regex**:
+    ```python
+    default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+    ```
+
+- **Optional Regex**:
+    ```python
+    default_filter_input.send_keys("^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+    ```
+
+This gives you flexibility to define what gets filtered, based on your preferred criteria.
+
+---
+
 ## 📞 Contact
 
 Have any questions or need help? Feel free to [open an issue](https://github.com/Woahai321/SeerrBridge/issues) or connect with us on [LinkedIn](https://www.linkedin.com/company/soluify/).
