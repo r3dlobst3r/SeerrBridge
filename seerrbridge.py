@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.3}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.3.1}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -56,6 +56,8 @@ OVERSEERR_BASE = os.getenv('OVERSEERR_BASE')
 OVERSEERR_API_BASE_URL = f"{OVERSEERR_BASE}/api/v1"
 OVERSEERR_API_KEY = os.getenv('OVERSEERR_API_KEY')
 TRAKT_API_KEY = os.getenv('TRAKT_API_KEY')
+HEADLESS_MODE = os.getenv("HEADLESS_MODE", "true").lower() == "true"
+TORRENT_FILTER_REGEX = os.getenv("TORRENT_FILTER_REGEX")
 
 if not OVERSEERR_API_BASE_URL:
     logger.error("OVERSEERR_API_BASE_URL environment variable is not set.")
@@ -219,15 +221,28 @@ def login(driver):
     logger.info("Initiating login process.")
 
     try:
-        # Click the "Login with Real Debrid" button
-        login_button = WebDriverWait(driver, 10).until(
+        # Check if the "Login with Real Debrid" button exists and is clickable
+        login_button = WebDriverWait(driver, 5).until(
             EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Login with Real Debrid')]"))
         )
-        login_button.click()
-        logger.info("Clicked on 'Login with Real Debrid' button.")
+        if login_button:
+            login_button.click()
+            logger.info("Clicked on 'Login with Real Debrid' button.")
+        else:
+            logger.info("'Login with Real Debrid' button was not found. Skipping this step.")
 
-    except (TimeoutException, NoSuchElementException) as ex:
-        logger.error(f"Error during login process: {ex}")
+    except TimeoutException:
+        # Handle case where the button was not found before the timeout
+        logger.warning("'Login with Real Debrid' button not found or already bypassed. Proceeding...")
+    
+    except NoSuchElementException:
+        # Handle case where the element is not in the DOM
+        logger.warning("'Login with Real Debrid' button not present in the DOM. Proceeding...")
+
+    except Exception as ex:
+        # Log any other unexpected exception
+        logger.error(f"An unexpected error occurred during login: {ex}")
+
 
 scheduler = AsyncIOScheduler()
 
@@ -238,7 +253,9 @@ async def initialize_browser():
         logger.info("Starting persistent browser session.")
 
         options = Options()
-        options.add_argument('--headless')  # Run browser in headless mode
+        # Use the HEADLESS_MODE from .env
+        if HEADLESS_MODE:
+            options.add_argument('--headless')  # Run browser in headless mode
         options.add_argument('--disable-gpu')  # Disable GPU to save resources
         options.add_argument('--no-sandbox')  # Required for running Chrome in Docker
         options.add_argument('--disable-dev-shm-usage')  # Overcome limited /dev/shm size in containers
@@ -267,6 +284,7 @@ async def initialize_browser():
 
         # Refresh the page to apply the local storage values
         driver.refresh()
+        login(driver)
         logger.success("Refreshed the page to apply local storage values.")
         # After refreshing, call the login function to click the login button
         # After successful login, click on "⚙️ Settings" to open the settings popup
@@ -293,10 +311,10 @@ async def initialize_browser():
             )
             default_filter_input.clear()  # Clear any existing filter
 
-            # Add custom Regex here
-            default_filter_input.send_keys("^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*")
+            # Use the regex from .env
+            default_filter_input.send_keys(TORRENT_FILTER_REGEX)
 
-            logger.info("Inserted regex into 'Default torrents filter' input box.")
+            logger.info(f"Inserted regex into 'Default torrents filter' input box: {TORRENT_FILTER_REGEX}")
 
             # Confirm the changes by clicking the 'OK' button on the popup
             save_button = WebDriverWait(driver, 10).until(
@@ -712,7 +730,7 @@ def search_on_debrid(movie_title, driver):
         logger.success(f"Navigated to search results page for {movie_title}.")
         
         # Wait for the results page to load dynamically
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/movie/')]"))
         )
 
