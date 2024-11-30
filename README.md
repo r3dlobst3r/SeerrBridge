@@ -104,6 +104,9 @@ Create a `.env` (or rename the example .env) file in the root directory of the p
 ```bash
 CHROMEDRIVER_PATH=path-to-chromedriver
 RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789}
+RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN
+RD_CLIENT_ID=YOUR_CLIENT_ID
+RD_CLIENT_SECRET=YOUR_CLIENT_SECRET
 TRAKT_API_KEY=YOUR_TRAKT_TOKEN
 OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
 OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
@@ -133,6 +136,67 @@ Configure your webhook as mentioned above so SeerrBridge can ingest and process 
    ```bash
    python seerrbridge.py
    ```
+
+---
+
+### 🐳 Docker Support
+
+#### Option 1: Using Docker Compose
+
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/Woahai321/SeerrBridge.git
+    cd SeerrBridge
+    ```
+
+2. Copy the example `.env` file and update it with your specific configuration:
+    ```bash
+    cp .env.example .env
+    ```
+
+    Example `.env`:
+    ```bash
+    CHROMEDRIVER_PATH=path-to-chromedriver
+    RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789}
+    RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN
+    RD_CLIENT_ID=YOUR_CLIENT_ID
+    RD_CLIENT_SECRET=YOUR_CLIENT_SECRET
+    TRAKT_API_KEY=YOUR_TRAKT_TOKEN
+    OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
+    OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
+    ```
+
+3. Start the container:
+    ```bash
+    docker-compose up -d
+    ```
+
+4. Access the app at: [http://localhost:8000](http://localhost:8000).
+
+---
+
+#### Option 2: Using Docker Run
+
+Skip Compose and run the container directly:
+
+```bash
+docker run -d \
+  --name seerrbridge \
+  -p 8000:8000 \
+  -v $(pwd)/config:/app/config \
+  -e CHROMEDRIVER_PATH=path-to-chromedriver \
+  -e RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789} \
+  -e RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN \
+  -e RD_CLIENT_ID=YOUR_CLIENT_ID \
+  -e RD_CLIENT_SECRET=YOUR_CLIENT_SECRET \
+  -e TRAKT_API_KEY=YOUR_TRAKT_TOKEN \
+  -e OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN \
+  -e OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM \
+  ghcr.io/woahai321/seerrbridge:main
+```
+---
+
+That's it! Your **SeerrBridge** container should now be up and running. 🚀
 
 ---
 
