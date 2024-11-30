@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.2.2}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.3}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -240,7 +240,9 @@ async def initialize_browser():
         options = Options()
         options.add_argument('--headless')  # Run browser in headless mode
         options.add_argument('--disable-gpu')  # Disable GPU to save resources
-
+        options.add_argument('--no-sandbox')  # Required for running Chrome in Docker
+        options.add_argument('--disable-dev-shm-usage')  # Overcome limited /dev/shm size in containers
+        
         chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
         service = ChromeService(executable_path=chromedriver_path)
         driver = webdriver.Chrome(service=service, options=options)
@@ -267,7 +269,6 @@ async def initialize_browser():
         driver.refresh()
         logger.success("Refreshed the page to apply local storage values.")
         # After refreshing, call the login function to click the login button
-        login(driver)
         # After successful login, click on "⚙️ Settings" to open the settings popup
         try:
 
@@ -1037,7 +1038,6 @@ def search_on_debrid(movie_title, driver):
                             confirmation_flag = True  # Mark confirmation as successful
                         else:
                             logger.warning(f"Failed to handle buttons in box {i}. Skipping.")
-
                         # After clicking, check if the button has changed to "RD (0%)" or "RD (100%)"
                         try:
                             rd_button = WebDriverWait(driver, 10).until(
@@ -1082,14 +1082,26 @@ def search_on_debrid(movie_title, driver):
 
 async def get_user_input():
     try:
-        # Simulate asynchronous input with a timeout
+        # Check if running in a Docker container or non-interactive environment
+        if os.getenv("RUNNING_IN_DOCKER", "false").lower() == "true":
+            print("Running in Docker, automatically selecting 'n' for recurring Overseerr check.")
+            return 'n'  # Automatically return 'yes' when running in Docker
+
+        # Simulate asynchronous input with a timeout for interactive environments
         user_input = await asyncio.wait_for(
             asyncio.to_thread(input, "Do you want to start the initial check and recurring task? (y/n): "), 
             timeout=10
         )
         return user_input.strip().lower()
+
     except asyncio.TimeoutError:
+        print("Input timeout. Defaulting to 'n'.")
         return 'n'  # Default to 'no' if no input is provided within 10 seconds
+
+    except EOFError:
+        # Handle cases where no input is provided (e.g., non-interactive environment)
+        print("No input received (EOFError). Defaulting to 'n'.")
+        return 'n'
 
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
