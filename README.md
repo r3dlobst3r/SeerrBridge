@@ -52,6 +52,7 @@ Simply put, I was too lazy to set up all of these other applications (arrs) and 
 | **Debrid Media Manager**| ✅      | Torrent fetching automation          |
 | **Real-Debrid**| ✅      | Unrestricted (torrent) downloader       |
 | **SuggestArr**| ✅      | Automatically grab related content and send to Jellyseerr/Overseerr      |
+| **Windows & Linux**| ✅      | Tested and working in both Windows & Linux environments      |
 
 ---
 
