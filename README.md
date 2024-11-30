@@ -207,6 +207,7 @@ That's it! Your **SeerrBridge** container should now be up and running. 🚀
 - [x] **DMM Token**: Ensure access token permanence/refresh
 - [x] **Jellyseer/Overseer API Integration**: Direct integration with Jellyseer/Overseer API for smoother automation and control.
 - [x] **Title Parsing**: Ensure torrent titles/names are properly matched and handle different languages.
+- [x] **Docker Support**: Allow for Docker / Compose container.
 
 ---
 
