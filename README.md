@@ -69,7 +69,7 @@ Before you can run this script, ensure that you have the following prerequisites
      http://localhost:8777/jellyseer-webhook/
      ```
 
-![image](https://github.com/user-attachments/assets/6afe0d6e-ade5-4748-9af1-9cdefc056201)
+![image](https://github.com/user-attachments/assets/170a2eb2-274a-4fc1-b288-5ada91a9fc47)
 
 ### 2. **Real-Debrid Account**
    - You will need a valid [Real-Debrid](https://real-debrid.com/) account to authenticate and interact with the Debrid Media Manager.
