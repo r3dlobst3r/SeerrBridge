@@ -282,6 +282,67 @@ To switch between the default and optional regex, simply update the `default_fil
 
 This gives you flexibility to define what gets filtered, based on your preferred criteria.
 
+Here is a simplified version without the explanations of "what it does":
+
+---
+
+## 📜 List of Regex Examples
+
+Below is a categorized list of regex patterns for different filtering possibilities.
+
+---
+
+### 1. **Current Filter**
+```regex
+^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
+```
+
+---
+
+### 2. **Current Filter with Resolutions**
+```regex
+^(?=.*(1080p|2160p))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
+```
+
+---
+
+### 3. **Current Filter with Torrent Types**
+```regex
+^(?=.*(Remux|BluRay|BDRip|BRRip))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
+```
+
+---
+
+### 4. **Filter with Both Types and Resolutions**
+```regex
+^(?=.*(1080p|2160p))(?=.*(Remux|BluRay|BDRip|BRRip))(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
+```
+
+---
+
+### 5. **Filter for Specific Resolution Only**
+```regex
+^(?=.*(1080p|2160p)).*
+```
+
+---
+
+### 6. **Filter for Specific Torrent Types Only**
+```regex
+^(?=.*(Remux|BluRay|BDRip|BRRip)).*
+```
+
+---
+
+### 7. **Customizable Regex Template**
+```regex
+^(?=.*(1080p|2160p))?(?=.*(Remux|BluRay|BDRip|BRRip))?(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
+```
+
+---
+
+By selecting one of these patterns, you can tailor the regex filter to fit your exact needs.
+
 ---
 
 ## 📞 Contact
