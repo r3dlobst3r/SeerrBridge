@@ -1,0 +1,27 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "KRadd1221",
+      "name": "Kevin",
+      "avatar_url": "https://avatars.githubusercontent.com/u/5341534?v=4",
+      "profile": "https://github.com/KRadd1221",
+      "contributions": [
+        "code",
+        "bug"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "projectName": "SeerrBridge",
+  "projectOwner": "Woahai321"
+}
