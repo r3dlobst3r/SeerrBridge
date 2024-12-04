@@ -1,5 +1,5 @@
 # =============================================================================
-# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.3.1}
+# Soluify.com  |  Your #1 IT Problem Solver  |  {SeerrBridge v0.3.4}
 # =============================================================================
 #  __         _
 # (_  _ |   .(_
@@ -19,10 +19,12 @@ import urllib.parse
 import re
 import inflect
 import requests
+import platform
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from dotenv import load_dotenv
@@ -57,7 +59,15 @@ OVERSEERR_API_BASE_URL = f"{OVERSEERR_BASE}/api/v1"
 OVERSEERR_API_KEY = os.getenv('OVERSEERR_API_KEY')
 TRAKT_API_KEY = os.getenv('TRAKT_API_KEY')
 HEADLESS_MODE = os.getenv("HEADLESS_MODE", "true").lower() == "true"
+ENABLE_AUTOMATIC_BACKGROUND_TASK = os.getenv("ENABLE_AUTOMATIC_BACKGROUND_TASK", "false").lower() == "true"
 TORRENT_FILTER_REGEX = os.getenv("TORRENT_FILTER_REGEX")
+
+# Confirm the interval is a valid number.
+try:
+    REFRESH_INTERVAL_MINUTES = float(os.getenv("REFRESH_INTERVAL_MINUTES"))
+except (TypeError, ValueError):
+    logger.error("REFRESH_INTERVAL_MINUTES environment variable is not a valid number.")
+    exit(1)
 
 if not OVERSEERR_API_BASE_URL:
     logger.error("OVERSEERR_API_BASE_URL environment variable is not set.")
@@ -134,8 +144,6 @@ def refresh_access_token():
     global RD_REFRESH_TOKEN, RD_ACCESS_TOKEN, driver
 
     TOKEN_URL = "https://api.real-debrid.com/oauth/v2/token"
-
-    # Prepare token refresh request payload
     data = {
         'client_id': RD_CLIENT_ID,
         'client_secret': RD_CLIENT_SECRET,
@@ -146,31 +154,26 @@ def refresh_access_token():
     try:
         logger.info("Requesting a new access token with the refresh token.")
         response = requests.post(TOKEN_URL, data=data)
+        response.encoding = 'utf-8'  # Explicitly set UTF-8 encoding for the response
         response_data = response.json()
 
         if response.status_code == 200:
-            # Calculate new expiry time (24 hours from now) in milliseconds
             expiry_time = int((datetime.now() + timedelta(hours=24)).timestamp() * 1000)
-
-            # Update the access token with new expiry time
             RD_ACCESS_TOKEN = json.dumps({
                 "value": response_data['access_token'],
                 "expiry": expiry_time
-            })
+            }, ensure_ascii=False)  # Ensure non-ASCII characters are preserved
             logger.success("Successfully refreshed access token.")
-            update_env_file()  # Update the .env file with the new token
+            
+            update_env_file()
 
-            # Update local storage with the new token
             if driver:
                 driver.execute_script(f"""
                     localStorage.setItem('rd:accessToken', '{RD_ACCESS_TOKEN}');
                 """)
                 logger.info("Updated Real-Debrid credentials in local storage after token refresh.")
-
-                # Refresh the page to apply the local storage values
                 driver.refresh()
                 logger.success("Refreshed the page after updating local storage with the new token.")
-
         else:
             logger.error(f"Failed to refresh access token: {response_data.get('error_description', 'Unknown error')}")
     except Exception as e:
@@ -178,16 +181,16 @@ def refresh_access_token():
 
 def update_env_file():
     """Update the .env file with the new access token."""
-    with open('.env', 'r') as file:
+    with open('.env', 'r', encoding='utf-8') as file:
         lines = file.readlines()
 
-    with open('.env', 'w') as file:
+    with open('.env', 'w', encoding='utf-8') as file:
         for line in lines:
             if line.startswith('RD_ACCESS_TOKEN'):
-                # Update the existing access token line
                 file.write(f'RD_ACCESS_TOKEN={RD_ACCESS_TOKEN}\n')
             else:
                 file.write(line)
+
 
 def check_and_refresh_access_token():
     """Check if the access token is expired or about to expire and refresh it if necessary."""
@@ -252,29 +255,70 @@ async def initialize_browser():
     if driver is None:
         logger.info("Starting persistent browser session.")
 
-        options = Options()
-        # Use the HEADLESS_MODE from .env
-        if HEADLESS_MODE:
-            options.add_argument('--headless')  # Run browser in headless mode
-        options.add_argument('--disable-gpu')  # Disable GPU to save resources
-        options.add_argument('--no-sandbox')  # Required for running Chrome in Docker
-        options.add_argument('--disable-dev-shm-usage')  # Overcome limited /dev/shm size in containers
-        
-        chromedriver_path = os.getenv('CHROMEDRIVER_PATH')
-        service = ChromeService(executable_path=chromedriver_path)
-        driver = webdriver.Chrome(service=service, options=options)
-        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-            Object.defineProperty(navigator, 'webdriver', {
-              get: () => undefined
-            })
-          """
-        })
-        logger.success("Initialized Selenium WebDriver.")
+        # Detect the current operating system
+        current_os = platform.system().lower()  # Returns 'windows', 'linux', or 'darwin' (macOS)
+        logger.info(f"Detected operating system: {current_os}")
 
-        # Navigate to Debrid Media Manager
-        driver.get("https://debridmediamanager.com")
-        logger.success("Navigated to Debrid Media Manager start page.")
+        options = Options()
+
+        ### Handle Docker/Linux-specific configurations
+        if current_os == "linux" and os.getenv("RUNNING_IN_DOCKER", "false").lower() == "true":
+            logger.info("Detected Linux environment inside Docker. Applying Linux-specific configurations.")
+
+            # Explicitly set the Chrome binary location
+            options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+
+            # Enable headless mode for Linux/Docker environments
+            options.add_argument("--headless=new")  # Updated modern headless flag
+            options.add_argument("--no-sandbox")  # Required for running as root in Docker
+            options.add_argument("--disable-dev-shm-usage")  # Handle shared memory limitations
+            options.add_argument("--disable-gpu")  # Disable GPU rendering for headless environments
+            options.add_argument("--disable-setuid-sandbox")  # Bypass setuid sandbox
+
+        ### Handle Windows-specific configurations
+        elif current_os == "windows":
+            logger.info("Detected Windows environment. Applying Windows-specific configurations.")
+
+        if HEADLESS_MODE:
+            options.add_argument("--headless=new")  # Modern headless mode for Chrome
+        options.add_argument("--disable-gpu")  # Disable GPU for Docker compatibility
+        options.add_argument("--no-sandbox")  # Required for running browser as root
+        options.add_argument("--disable-dev-shm-usage")  # Disable shared memory usage restrictions
+        options.add_argument("--disable-setuid-sandbox")  # Disable sandboxing for root permissions
+        options.add_argument("--enable-logging")
+        options.add_argument("--window-size=1920,1080")  # Set explicit window size to avoid rendering issues
+
+        # WebDriver options to suppress infobars and disable automation detection
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--disable-infobars")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
+
+
+        # Log initialization method
+        logger.info("Using WebDriver Manager for dynamic ChromeDriver downloads.")
+
+        try:
+            # Use webdriver-manager to install the appropriate ChromeDriver version
+            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
+            # Suppress 'webdriver' detection
+            driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                  get: () => undefined
+                })
+                """
+            })
+
+            logger.success("Initialized Selenium WebDriver with WebDriver Manager.")
+            # Navigate to an initial page to confirm browser works
+            driver.get("https://debridmediamanager.com")
+            logger.success("Navigated to Debrid Media Manager page.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Selenium WebDriver: {e}")
+            raise e
 
         # Inject Real-Debrid access token and other credentials into local storage
         driver.execute_script(f"""
@@ -292,17 +336,11 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//a[contains(text(),'⚙️ Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
-            # Wait for the settings popup to appear
-            WebDriverWait(driver, 10).until(
 
-                EC.presence_of_element_located((By.XPATH, "//h2[contains(text(),'⚙️ Settings')]"))
-            )
-
-            logger.info("Settings popup appeared.")
             # Locate the "Default torrents filter" input box and insert the regex
             logger.info("Attempting to insert regex into 'Default torrents filter' box.")
             default_filter_input = WebDriverWait(driver, 10).until(
@@ -316,17 +354,13 @@ async def initialize_browser():
 
             logger.info(f"Inserted regex into 'Default torrents filter' input box: {TORRENT_FILTER_REGEX}")
 
-            # Confirm the changes by clicking the 'OK' button on the popup
-            save_button = WebDriverWait(driver, 10).until(
-
-                EC.element_to_be_clickable((By.XPATH, "//button[@class='swal2-confirm !bg-blue-600 !px-6 haptic swal2-styled']"))
-            )
-            save_button.click()
-            logger.success("Clicked 'Save' to save settings.")
+            settings_link.click()
+            logger.success("Closed 'Settings' to save settings.")
 
         except (TimeoutException, NoSuchElementException) as ex:
+            logger.error(f"Error while interacting with the settings: {ex}")
+            logger.error(f"Continuing without TORRENT_FILTER_REGEX")
 
-            logger.error(f"Error while interacting with the settings popup: {ex}")
 
         # Navigate to the library section
         logger.info("Navigating to the library section.")
@@ -762,7 +796,7 @@ def search_on_debrid(movie_title, driver):
                 logger.info(f"Comparing '{search_title_normalized}' with '{movie_title_normalized}' (Match Ratio: {title_match_ratio})")
 
                 # Check if the titles match (with a threshold) and if the years are within ±1 year range
-                if title_match_ratio >= 85 and (expected_year is None or abs(search_year - expected_year) <= 1):
+                if title_match_ratio >= 69 and (expected_year is None or abs(search_year - expected_year) <= 1):
                     logger.info(f"Found matching movie: {search_title_cleaned} ({search_year})")
                     
                     # Click on the parent <a> tag (which is the clickable link)
@@ -1102,8 +1136,8 @@ async def get_user_input():
     try:
         # Check if running in a Docker container or non-interactive environment
         if os.getenv("RUNNING_IN_DOCKER", "false").lower() == "true":
-            print("Running in Docker, automatically selecting 'n' for recurring Overseerr check.")
-            return 'n'  # Automatically return 'yes' when running in Docker
+            print("Running in Docker, automatically selecting 'y' for recurring Overseerr check.")
+            return 'y'  # Automatically return 'yes' when running in Docker
 
         # Simulate asynchronous input with a timeout for interactive environments
         user_input = await asyncio.wait_for(
@@ -1196,8 +1230,11 @@ async def startup_event():
     schedule_token_refresh()
     scheduler.start()
     # Ask user if they want to proceed with the initial check and recurring task
-    user_input = await get_user_input()
-
+    if ENABLE_AUTOMATIC_BACKGROUND_TASK:
+        user_input = 'y'
+    else: 
+        user_input = await get_user_input()
+    
     if user_input == 'y':
         try:
             # Run the initial check immediately
@@ -1206,7 +1243,6 @@ async def startup_event():
 
             # Schedule the rechecking of movie requests every 2 hours
             schedule_recheck_movie_requests()
-            logger.info("Scheduled rechecking movie requests every 2 hours.")
         except Exception as e:
             logger.error(f"Error while processing movie requests: {e}")
 
@@ -1219,9 +1255,9 @@ async def startup_event():
 
 
 def schedule_recheck_movie_requests():
-    # Correctly schedule the job with an interval of 2 hours
-    scheduler.add_job(process_movie_requests, 'interval', hours=2)
-    logger.info("Scheduled rechecking movie requests every 2 hours.")
+    # Correctly schedule the job with the REFRESH_INTERVAL_MINUTES configured interval.
+    scheduler.add_job(process_movie_requests, 'interval', minutes=REFRESH_INTERVAL_MINUTES)
+    logger.info(f"Scheduled rechecking movie requests every {REFRESH_INTERVAL_MINUTES} minute(s).")
 
 
 
