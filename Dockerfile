@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM python:3.10
 
 WORKDIR /app
 
@@ -28,16 +28,9 @@ RUN wget -O /tmp/chrome-linux64.zip https://storage.googleapis.com/chrome-for-te
     ln -sf /opt/chrome/chrome /usr/bin/google-chrome && \
     chmod +x /usr/bin/google-chrome
 
-# Download and install ChromeDriver (specific version)
-RUN wget -O /tmp/chromedriver-linux64.zip https://storage.googleapis.com/chrome-for-testing-public/131.0.6778.69/linux64/chromedriver-linux64.zip && \
-    unzip /tmp/chromedriver-linux64.zip -d /usr/local/bin/ && \
-    mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
-    chmod +x /usr/local/bin/chromedriver
-
 # Set environment variables
 ENV CHROME_BIN=/usr/bin/google-chrome
 ENV CHROME_DRIVER_PATH=/usr/local/bin/chromedriver
-# Set environment variable to indicate the app is running inside Docker
 ENV RUNNING_IN_DOCKER=true
 
 # Copy requirements and install them
@@ -48,7 +41,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the application port (if needed)
-EXPOSE 8000
+EXPOSE 8777
 
 # Run the application
-CMD ["uvicorn", "seerrbridge:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "seerrbridge:app", "--host", "0.0.0.0", "--port", "8777"]
