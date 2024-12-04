@@ -82,15 +82,10 @@ This is what you want to copy from your local storage and set in your .env:
 
     {"value":"your_token","expiry":123} | YOUR_CLIENT_ID | YOUR_CLIENT_SECRET | YOUR_REFRESH_TOKEN
 
-### 3. **ChromeDriver**
-   - [ChromeDriver](https://googlechromelabs.github.io/chrome-for-testing/) is required to automate browser tasks using Selenium.
-     - Ensure that the version of ChromeDriver matches your installed version of Google Chrome.
-       - Download it manually and provide the path in your `.env` file.
-
-### 4. **Python 3.10.11+**
+### 3. **Python 3.10.11+**
    - The bot requires **Python 3.10.11** or higher. You can download Python from [here](https://www.python.org/downloads/).
 
-### 5. **Required Python Libraries**
+### 4. **Required Python Libraries**
    - You can install the required libraries by running:
      ```bash
      pip install -r requirements.txt
@@ -103,7 +98,6 @@ This is what you want to copy from your local storage and set in your .env:
 Create a `.env` (or rename the example .env) file in the root directory of the project and add the following environment variables:
 
 ```bash
-CHROMEDRIVER_PATH=path-to-chromedriver
 RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789}
 RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN
 RD_CLIENT_ID=YOUR_CLIENT_ID
@@ -112,6 +106,8 @@ TRAKT_API_KEY=YOUR_TRAKT_TOKEN
 OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
 OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
 HEADLESS_MODE=true
+ENABLE_AUTOMATIC_BACKGROUND_TASK=true
+REFRESH_INTERVAL_MINUTES=120
 TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
 ```
 
@@ -159,7 +155,6 @@ Configure your webhook as mentioned above so SeerrBridge can ingest and process 
 
     Example `.env`:
     ```bash
-    CHROMEDRIVER_PATH=path-to-chromedriver
     RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789}
     RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN
     RD_CLIENT_ID=YOUR_CLIENT_ID
@@ -168,6 +163,8 @@ Configure your webhook as mentioned above so SeerrBridge can ingest and process 
     OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN
     OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM
     HEADLESS_MODE=true
+    ENABLE_AUTOMATIC_BACKGROUND_TASK=true
+    REFRESH_INTERVAL_MINUTES=120
     TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).*
     ```
 
@@ -189,7 +186,6 @@ docker run -d \
   --name seerrbridge \
   -p 8777:8777 \
   -v $(pwd)/config:/app/config \
-  -e CHROMEDRIVER_PATH=path-to-chromedriver \
   -e RD_ACCESS_TOKEN={"value":"YOUR_TOKEN","expiry":123456789} \
   -e RD_REFRESH_TOKEN=YOUR_REFRESH_TOKEN \
   -e RD_CLIENT_ID=YOUR_CLIENT_ID \
@@ -198,6 +194,8 @@ docker run -d \
   -e OVERSEERR_API_KEY=YOUR_OVERSEERR_TOKEN \
   -e OVERSEERR_BASE=https://YOUR_OVERSEERR_URL.COM \
   -e HEADLESS_MODE=true \
+  -e ENABLE_AUTOMATIC_BACKGROUND_TASK=true \
+  -e REFRESH_INTERVAL_MINUTES=120 \
   -e TORRENT_FILTER_REGEX=^(?!.*【.*?】)(?!.*[\u0400-\u04FF])(?!.*\[esp\]).* \
   ghcr.io/woahai321/seerrbridge:main
 ```
