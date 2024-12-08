@@ -35,6 +35,7 @@ from deep_translator import GoogleTranslator
 from fuzzywuzzy import fuzz
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from tmdbv3api import TMDb, Movie, TV, Season, Episode
 
 
 # Configure loguru
@@ -87,6 +88,13 @@ driver = None
 # Initialize a global queue with a maximum size of 500
 request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
+
+# Initialize TMDB
+tmdb = TMDb()
+tmdb.api_key = os.getenv('TMDB_API_KEY')
+if not tmdb.api_key:
+    logger.error("TMDB_API_KEY environment variable is not set.")
+    exit(1)
 
 class MediaInfo(BaseModel):
     media_type: str
@@ -1158,47 +1166,26 @@ async def get_user_input():
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
 async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
-    # Log the raw incoming payload for debugging
-    raw_payload = await request.json()
-    #logger.info(f"Raw incoming webhook payload: {raw_payload}")
-
     try:
-        # Parse the payload using the WebhookPayload model
-        payload = WebhookPayload(**raw_payload)
+        payload = WebhookPayload(**(await request.json()))
+        
+        media_type = payload.media.media_type.lower()
+        tmdb_id = payload.media.tmdbId
+        media_id = payload.media.id
+        
+        if not tmdb_id:
+            raise HTTPException(status_code=400, detail="TMDB ID is missing")
+            
+        success = await check_library_and_process(media_type, tmdb_id, media_id)
+        
+        return {
+            "status": "success" if success else "error",
+            "message": f"{media_type.capitalize()} processed successfully" if success else "Failed to process media"
+        }
+        
     except ValidationError as e:
-        # Log the validation error details
         logger.error(f"Payload validation error: {e}")
         raise HTTPException(status_code=422, detail=str(e))
-
-    # Log the specific event from the payload
-    logger.success(f"Received webhook with event: {payload.event}")
-
-    # Extract tmdbId from the payload
-    tmdb_id = payload.media.tmdbId
-    if not tmdb_id:
-        logger.error("TMDB ID is missing in the payload")
-        raise HTTPException(status_code=400, detail="TMDB ID is missing in the payload")
-
-    # Log the extracted tmdb_id
-    logger.info(f"Extracted tmdbId: {tmdb_id}")
-
-    # Fetch movie details from Trakt using tmdb_id
-    movie_details = get_movie_details_from_trakt(tmdb_id)
-    if not movie_details:
-        logger.error("Failed to fetch movie details from Trakt")
-        raise HTTPException(status_code=500, detail="Failed to fetch movie details from Trakt")
-
-    # Log the fetched movie details
-    movie_title = f"{movie_details['title']} ({movie_details['year']})"
-    logger.info(f"Fetched movie details: {movie_title}")
-
-    # Add movie request to background processing queue
-    background_tasks.add_task(add_request_to_queue, movie_title)
-    
-    # Log the response before returning
-    logger.info(f"Returning response: {movie_details['title']} ({movie_details['year']})")
-    
-    return {"status": "success", "movie_title": movie_details['title'], "movie_year": movie_details['year']}
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
