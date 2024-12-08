@@ -611,22 +611,22 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         if media_type == "movie":
             movie = Movie()
             details = movie.details(tmdb_id)
-            # Use just the main title without subtitle
-            search_term = details.title.split(':')[0].strip()
+            # Use just the main title without subtitle, convert to lowercase
+            search_term = details.title.split(':')[0].strip().lower()
             logger.info(f"Searching library for simplified title: {search_term}")
         else:
             tv = TV()
             details = tv.details(tmdb_id)
-            search_term = details.name
+            search_term = details.name.lower()
         
-        # Wait for and find the search input (using the placeholder text)
+        # Wait for and find the search input
         search_input = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, "//input[@placeholder='search by filename/hash/id, supports regex']"))
         )
         
-        # Clear existing search and enter search term
+        # Clear existing search and enter lowercase search term
         search_input.clear()
-        # Escape any special regex characters in the search term
+        # Escape special regex characters and ensure lowercase
         escaped_search_term = re.escape(search_term)
         search_input.send_keys(escaped_search_term)
         logger.info(f"Entered search term: {escaped_search_term}")
