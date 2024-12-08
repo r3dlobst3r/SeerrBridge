@@ -706,7 +706,7 @@ def handle_tv_show_page(title: str, driver) -> bool:
         logger.error(f"Error handling TV show page: {e}")
         return False
 
-def handle_movie_page(title: str, driver) -> bool:
+async def handle_movie_page(title: str, driver) -> bool:
     """Handle the movie page interactions"""
     try:
         logger.info(f"Handling movie page for: {title}")
@@ -1425,9 +1425,9 @@ async def process_single_request(media_type: str, tmdb_id: int):
         
         # Process based on media type
         if media_type == 'tv':
-            confirmation_flag = await asyncio.to_thread(handle_tv_show_page, title, driver)
+            confirmation_flag = await handle_tv_show_page(title, driver)
         else:
-            confirmation_flag = await asyncio.to_thread(handle_movie_page, title, driver)
+            confirmation_flag = await handle_movie_page(title, driver)
         
         # Handle the completion marking
         if confirmation_flag:
