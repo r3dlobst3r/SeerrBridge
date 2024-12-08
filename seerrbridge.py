@@ -44,6 +44,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tmdbv3api import TMDb, Movie, TV, Season, Episode
 from fastapi.responses import JSONResponse
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 
 
 # Configure loguru
@@ -729,35 +730,67 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for page to load completely
         time.sleep(2)
         
-        # Find the button using its exact classes
-        button_xpath = "//button[contains(@class, 'border-2') and contains(@class, 'border-green-500') and contains(@class, 'bg-green-900/30')]"
+        # Try multiple button selectors
+        selectors = [
+            "//button[contains(text(), 'Instant RD')]",  # By text
+            "//button[@class='border-2 border-green-500 bg-green-900/30 text-green-100 hover:bg-green-800/50 haptic-sm inline rounded px-1 text-xs transition-colors']",  # Exact class
+            "//div[@role='main']//button[contains(@class, 'border-green-500')]",  # By role and class
+            "//button[.//span[text()='Instant RD']]",  # By span text
+            "//button[contains(@class, 'border-green-500') and contains(@class, 'bg-green-900')]"  # By partial classes
+        ]
         
-        # Wait for button and click it
-        button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.XPATH, button_xpath))
-        )
-        logger.info("Found Instant RD button")
-        
-        # Try multiple click methods
-        try:
-            button.click()
-            logger.info("Direct click successful")
-        except:
+        button = None
+        for selector in selectors:
             try:
-                driver.execute_script("arguments[0].click();", button)
-                logger.info("JavaScript click successful")
+                logger.info(f"Trying selector: {selector}")
+                button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, selector))
+                )
+                if button:
+                    logger.info("Found button!")
+                    break
             except:
-                ActionChains(driver).move_to_element(button).click().perform()
-                logger.info("ActionChains click successful")
+                continue
+                
+        if not button:
+            logger.error("Could not find button with any selector")
+            return False
+            
+        # Try every possible click method
+        click_methods = [
+            lambda: button.click(),
+            lambda: driver.execute_script("arguments[0].click();", button),
+            lambda: ActionChains(driver).move_to_element(button).click().perform(),
+            lambda: driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {'bubbles': true, 'cancelable': true}));", button),
+            lambda: button.send_keys(Keys.RETURN),
+            lambda: driver.execute_script("arguments[0].focus(); arguments[0].click();", button)
+        ]
         
-        # Look for success indicator in first result
-        success = WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
-        )
-        
-        logger.info("Found success indicator")
-        return True
+        for i, click_method in enumerate(click_methods, 1):
+            try:
+                logger.info(f"Trying click method {i}")
+                click_method()
+                logger.info(f"Click method {i} succeeded")
+                
+                # Check if click worked by looking for success indicator
+                try:
+                    success = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH,
+                            "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
+                    )
+                    if success:
+                        logger.info("Click confirmed - found success indicator")
+                        return True
+                except:
+                    logger.info(f"Click method {i} didn't produce success indicator, trying next method")
+                    continue
+                    
+            except Exception as e:
+                logger.warning(f"Click method {i} failed: {str(e)}")
+                continue
+                
+        logger.error("All click methods failed")
+        return False
 
     except Exception as e:
         logger.error(f"Error handling movie page: {str(e)}")
