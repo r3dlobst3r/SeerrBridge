@@ -45,3 +45,6 @@ EXPOSE 8777
 
 # Run the application
 CMD ["uvicorn", "seerrbridge:app", "--host", "0.0.0.0", "--port", "8777"]
+
+ARG CACHEBUST
+RUN echo "Cache bust: $CACHEBUST"

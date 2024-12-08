@@ -2,7 +2,10 @@ version: '3'
 
 services:
   seerrbridge:
-    build: .
+    build:
+      context: .
+      args:
+        CACHEBUST: ${CACHEBUST:-$(date +%s)}  # Uses current timestamp
     ports:
       - "8777:8777"
     env_file:
