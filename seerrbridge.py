@@ -686,7 +686,7 @@ def handle_movie_page(title: str, driver) -> bool:
         
         # Wait for the status message about RD availability
         try:
-            WebDriverWait(driver, 15).until(
+            status_element = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
             )
         except TimeoutException:
@@ -933,7 +933,7 @@ def search_on_debrid(movie_title, driver):
                 logger.warning("'No results found' message not detected. Proceeding to check for available torrents.")
 
             try:
-                status_element = WebDriverWait(driver, 5).until(
+                status_element = WebDriverWait(driver, 15).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
@@ -1034,7 +1034,7 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-
+                )
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
             except TimeoutException:
