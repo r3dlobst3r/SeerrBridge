@@ -729,15 +729,17 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for and click the Instant RD button
         instant_rd_button = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.XPATH, 
-                "//button[contains(@class, 'border-green-500') and contains(., 'Instant RD')]"))
+                "//button[contains(@class, 'border-green-500')]//*[contains(text(), 'Instant RD')] | //button[contains(@class, 'border-green-500') and contains(., '⚡')]"))
         )
         instant_rd_button.click()
+        logger.info("Clicked Instant RD button")
         
         # Wait for success indicator - the red "RD (100%)" button
         success = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH,
                 "//button[contains(@class, 'border-red-500') and contains(., 'RD (100%)')]"))
         )
+        logger.info("Found success indicator")
         
         return True if success else False
 
