@@ -640,41 +640,60 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         await asyncio.sleep(2)
 
         try:
-            # Look for size values (e.g., "9.5 GB") as indicator of results
-            size_xpath = "//div[contains(text(), 'GB') or contains(text(), 'MB')]"
+            # Look for the + icons that appear next to each result
+            results_xpath = "//div[contains(@class, 'flex')]//span[text()='+']"
             
             # Wait a moment for results to load
             await asyncio.sleep(2)
             
-            # Take a screenshot to debug
+            # Take a screenshot for debugging
             driver.save_screenshot("debug_search.png")
+            logger.info("Taking screenshot of search results")
             
-            # Check for results by looking for size values
-            size_elements = driver.find_elements(By.XPATH, size_xpath)
+            # Check for results
+            try:
+                # Wait for either results or "No results" message
+                WebDriverWait(driver, 5).until(
+                    lambda x: len(x.find_elements(By.XPATH, results_xpath)) > 0 or 
+                            len(x.find_elements(By.XPATH, "//div[contains(text(), 'No results')]")) > 0
+                )
+            except TimeoutException:
+                logger.warning("Neither results nor 'No results' message found")
+                return False
+
+            # Get all result rows
+            result_rows = driver.find_elements(By.XPATH, results_xpath)
             
-            if size_elements:
-                logger.info(f"Found {len(size_elements)} items with size values, checking titles...")
+            if result_rows:
+                logger.info(f"Found {len(result_rows)} items in results, checking titles...")
                 
-                # For each size element, look for its associated title
-                for size_elem in size_elements:
+                # For each result row
+                for row in result_rows:
                     try:
-                        # Navigate up to the row container and find the title
-                        row = size_elem.find_element(By.XPATH, "./ancestor::div[contains(@class, 'border-2')]")
-                        item_title = row.find_element(By.XPATH, ".//div[contains(@class, 'text-lg')]").text.lower()
-                        logger.info(f"Checking library item: {item_title}")
+                        # Get the parent container that has all the info
+                        container = row.find_element(By.XPATH, "./ancestor::div[contains(@class, 'border-2')]")
+                        
+                        # Get both the title and size elements
+                        title_elem = container.find_element(By.XPATH, ".//div[contains(@class, 'text-lg')]")
+                        size_elem = container.find_element(By.XPATH, ".//div[contains(text(), 'GB')]")
+                        
+                        item_title = title_elem.text.lower()
+                        item_size = size_elem.text
+                        
+                        logger.info(f"Checking library item: {item_title} ({item_size})")
                         
                         # Check if both title and year match
                         if full_title in item_title and year in item_title:
-                            logger.success(f"Found exact match: {item_title}")
+                            logger.success(f"Found exact match: {item_title} ({item_size})")
                             return True
                     except Exception as e:
-                        logger.warning(f"Error checking item title: {e}")
+                        logger.warning(f"Error checking item details: {e}")
                         continue
                 
                 logger.info("No exact match found in results")
                 return False
             else:
-                logger.info("No items found with size values")
+                logger.info("No items found in search results")
                 return False
             
         except Exception as e:
