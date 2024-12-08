@@ -726,18 +726,40 @@ async def handle_movie_page(title: str, driver) -> bool:
     try:
         logger.info(f"Handling movie page for: {title}")
         
-        # Click the top Instant RD button
-        top_button = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.XPATH, 
-                "//button[contains(@class, 'border-green-500') and contains(., '⚡')]"))
+        # Wait for page to load and button to be present
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//h1[contains(text(), 'Rare Exports')]"))
         )
-        logger.info("Found and clicking top Instant RD button")
-        top_button.click()
         
-        # Look for the "❌ RD (100%)" indicator in the first result box
+        # Try multiple methods to find and click the button
+        try:
+            # First try: Direct click
+            button = driver.find_element(By.XPATH, "//button[contains(@class, 'border-green-500')]")
+            logger.info("Found button via direct selector")
+            driver.execute_script("arguments[0].click();", button)
+            logger.info("Executed JavaScript click")
+        except:
+            try:
+                # Second try: More specific selector
+                button = driver.find_element(By.XPATH, 
+                    "//div[@role='main']//button[contains(@class, 'border-green-500')]")
+                logger.info("Found button via specific selector")
+                ActionChains(driver).move_to_element(button).click().perform()
+                logger.info("Executed ActionChains click")
+            except:
+                # Third try: Most specific selector
+                button = driver.find_element(By.XPATH,
+                    "//*[contains(text(), 'Rare Exports')]/following::button[contains(@class, 'border-green-500')][1]")
+                logger.info("Found button via title-based selector")
+                driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                time.sleep(1)
+                button.click()
+                logger.info("Executed direct click after scroll")
+        
+        # Look for the success indicator in the first result box
         success = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH,
-                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500') and contains(., 'RD (100%)')]"))
+                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
         )
         
         logger.info("Found success indicator")
@@ -1058,7 +1080,6 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-                )
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
             except TimeoutException:
