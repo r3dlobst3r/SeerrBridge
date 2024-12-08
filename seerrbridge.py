@@ -625,12 +625,11 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         
         # Look for items in the library
         try:
-            # Wait for library items to be present
-            status_element = WebDriverWait(driver, 15).until(
+            library_items = WebDriverWait(driver, 5).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
             )
             
-            if status_element:
+            if library_items:
                 logger.success(f"Found {search_term} in library!")
                 return True
                 
@@ -899,7 +898,7 @@ def search_on_debrid(movie_title, driver):
                 logger.warning("'No results found' message not detected. Proceeding to check for available torrents.")
 
             try:
-                status_element = WebDriverWait(driver, 5).until(
+                status_element = WebDriverWait(driver, 15).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
@@ -1000,6 +999,7 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
+                )
 
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
