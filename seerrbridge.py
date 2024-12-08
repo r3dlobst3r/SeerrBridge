@@ -726,37 +726,31 @@ async def handle_movie_page(title: str, driver) -> bool:
     try:
         logger.info(f"Handling movie page for: {title}")
         
-        # Wait for page to load and button to be present
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//h1[contains(text(), 'Rare Exports')]"))
-        )
+        # Wait for page to load completely
+        time.sleep(2)
         
-        # Try multiple methods to find and click the button
+        # Find the button using its exact classes
+        button_xpath = "//button[contains(@class, 'border-2') and contains(@class, 'border-green-500') and contains(@class, 'bg-green-900/30')]"
+        
+        # Wait for button and click it
+        button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, button_xpath))
+        )
+        logger.info("Found Instant RD button")
+        
+        # Try multiple click methods
         try:
-            # First try: Direct click
-            button = driver.find_element(By.XPATH, "//button[contains(@class, 'border-green-500')]")
-            logger.info("Found button via direct selector")
-            driver.execute_script("arguments[0].click();", button)
-            logger.info("Executed JavaScript click")
+            button.click()
+            logger.info("Direct click successful")
         except:
             try:
-                # Second try: More specific selector
-                button = driver.find_element(By.XPATH, 
-                    "//div[@role='main']//button[contains(@class, 'border-green-500')]")
-                logger.info("Found button via specific selector")
-                ActionChains(driver).move_to_element(button).click().perform()
-                logger.info("Executed ActionChains click")
+                driver.execute_script("arguments[0].click();", button)
+                logger.info("JavaScript click successful")
             except:
-                # Third try: Most specific selector
-                button = driver.find_element(By.XPATH,
-                    "//*[contains(text(), 'Rare Exports')]/following::button[contains(@class, 'border-green-500')][1]")
-                logger.info("Found button via title-based selector")
-                driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                time.sleep(1)
-                button.click()
-                logger.info("Executed direct click after scroll")
+                ActionChains(driver).move_to_element(button).click().perform()
+                logger.info("ActionChains click successful")
         
-        # Look for the success indicator in the first result box
+        # Look for success indicator in first result
         success = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH,
                 "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
