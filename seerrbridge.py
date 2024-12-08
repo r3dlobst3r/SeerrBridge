@@ -726,22 +726,22 @@ async def handle_movie_page(title: str, driver) -> bool:
     try:
         logger.info(f"Handling movie page for: {title}")
         
-        # Wait for and click the Instant RD button
-        instant_rd_button = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, 
-                "//button[contains(@class, 'border-green-500')]//*[contains(text(), 'Instant RD')] | //button[contains(@class, 'border-green-500') and contains(., '⚡')]"))
+        # Click the top Instant RD button
+        top_button = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.XPATH, 
+                "//button[contains(@class, 'border-green-500') and contains(., '⚡')]"))
         )
-        instant_rd_button.click()
-        logger.info("Clicked Instant RD button")
+        logger.info("Found and clicking top Instant RD button")
+        top_button.click()
         
-        # Wait for success indicator - the red "RD (100%)" button
+        # Look for the "❌ RD (100%)" indicator in the first result box
         success = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH,
-                "//button[contains(@class, 'border-red-500') and contains(., 'RD (100%)')]"))
+                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500') and contains(., 'RD (100%)')]"))
         )
-        logger.info("Found success indicator")
         
-        return True if success else False
+        logger.info("Found success indicator")
+        return True
 
     except Exception as e:
         logger.error(f"Error handling movie page: {str(e)}")
