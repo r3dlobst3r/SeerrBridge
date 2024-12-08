@@ -21,6 +21,7 @@ import inflect
 import requests
 import platform
 from selenium import webdriver
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -42,6 +43,7 @@ from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tmdbv3api import TMDb, Movie, TV, Season, Episode
 from fastapi.responses import JSONResponse
+from selenium.webdriver.common.action_chains import ActionChains
 
 
 # Configure loguru
@@ -732,7 +734,6 @@ async def handle_movie_page(title: str, driver) -> bool:
             )
             logger.info(f"Status message: {status_element.text}")
             
-            # Check if no results were found
             if "No results found" in status_element.text:
                 logger.warning("No results found for this movie")
                 return False
@@ -746,11 +747,22 @@ async def handle_movie_page(title: str, driver) -> bool:
         
         # First try to click the main "Instant RD" button at the top of the page
         try:
+            # Look for the specific button with lightning bolt emoji
             main_instant_rd = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[text()='⚡ Instant RD']"))
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '⚡ Instant RD')]"))
             )
             logger.info("Found main Instant RD button at top of page")
-            driver.execute_script("arguments[0].click();", main_instant_rd)
+            # Try multiple click methods
+            try:
+                main_instant_rd.click()
+            except:
+                try:
+                    driver.execute_script("arguments[0].click();", main_instant_rd)
+                except:
+                    # Try moving to the element first
+                    actions = ActionChains(driver)
+                    actions.move_to_element(main_instant_rd).click().perform()
+            
             await asyncio.sleep(2)
             
             # Verify the download started
@@ -759,7 +771,7 @@ async def handle_movie_page(title: str, driver) -> bool:
                 logger.info("Main Instant RD button click confirmed successful")
                 return True
         except Exception as e:
-            logger.info(f"Could not use main Instant RD button: {e}")
+            logger.info(f"Could not use main Instant RD button: {str(e)}")
         
         # If main button didn't work, check individual results
         try:
@@ -776,10 +788,19 @@ async def handle_movie_page(title: str, driver) -> bool:
             # First pass: Try all Instant RD buttons
             for i, result_box in enumerate(result_boxes, 1):
                 try:
-                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[text()='⚡ Instant RD']")
+                    # Look for the specific button with lightning bolt emoji
+                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), '⚡ Instant RD')]")
                     if instant_buttons and len(instant_buttons) > 0:
                         logger.info(f"Found Instant RD button in box {i}")
-                        driver.execute_script("arguments[0].click();", instant_buttons[0])
+                        try:
+                            instant_buttons[0].click()
+                        except:
+                            try:
+                                driver.execute_script("arguments[0].click();", instant_buttons[0])
+                            except:
+                                actions = ActionChains(driver)
+                                actions.move_to_element(instant_buttons[0]).click().perform()
+                        
                         await asyncio.sleep(2)
                         
                         # Verify the button click worked
@@ -794,10 +815,18 @@ async def handle_movie_page(title: str, driver) -> bool:
             # Second pass: Try all DL with RD buttons
             for i, result_box in enumerate(result_boxes, 1):
                 try:
-                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[text()='DL with RD']")
+                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
                     if dl_buttons and len(dl_buttons) > 0:
                         logger.info(f"Found DL with RD button in box {i}")
-                        driver.execute_script("arguments[0].click();", dl_buttons[0])
+                        try:
+                            dl_buttons[0].click()
+                        except:
+                            try:
+                                driver.execute_script("arguments[0].click();", dl_buttons[0])
+                            except:
+                                actions = ActionChains(driver)
+                                actions.move_to_element(dl_buttons[0]).click().perform()
+                        
                         await asyncio.sleep(2)
                         
                         # Verify the button click worked
