@@ -611,8 +611,9 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         if media_type == "movie":
             movie = Movie()
             details = movie.details(tmdb_id)
-            # Just use the first word for search
-            search_term = details.title.split()[0].lower()
+            # Use first two words or full title if less than 3 words
+            title_words = details.title.split()
+            search_term = ' '.join(title_words[:2] if len(title_words) > 2 else title_words).lower()
             # Keep full title for validation
             full_title = details.title.lower()
             year = details.release_date[:4]
@@ -620,7 +621,8 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         else:
             tv = TV()
             details = tv.details(tmdb_id)
-            search_term = details.name.split()[0].lower()
+            title_words = details.name.split()
+            search_term = ' '.join(title_words[:2] if len(title_words) > 2 else title_words).lower()
             full_title = details.name.lower()
             year = details.first_air_date[:4]
         
@@ -631,6 +633,8 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         
         # Clear existing search and enter search term
         search_input.clear()
+        # Replace spaces with dots for filename format
+        search_term = search_term.replace(' ', '.')
         search_input.send_keys(search_term)
         logger.info(f"Entered search term: {search_term}")
         await asyncio.sleep(2)
@@ -1068,7 +1072,6 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-                )
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
             except TimeoutException:
