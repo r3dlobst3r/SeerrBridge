@@ -898,7 +898,7 @@ def search_on_debrid(movie_title, driver):
                 logger.warning("'No results found' message not detected. Proceeding to check for available torrents.")
 
             try:
-                status_element = WebDriverWait(driver, 15).until(
+                status_element = WebDriverWait(driver, 5).until(
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
@@ -1234,19 +1234,68 @@ async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks)
         tmdb_id = payload.media.tmdbId
         media_id = payload.media.id
         
-        if not tmdb_id:
-            raise HTTPException(status_code=400, detail="TMDB ID is missing")
-            
-        success = await check_library_and_process(media_type, tmdb_id, media_id)
+        logger.info(f"Received webhook for {media_type} request: {tmdb_id}")
+        
+        # Process this single request immediately
+        background_tasks.add_task(process_single_request, media_type, tmdb_id, media_id)
         
         return {
-            "status": "success" if success else "error",
-            "message": f"{media_type.capitalize()} processed successfully" if success else "Failed to process media"
+            "status": "success",
+            "message": f"Processing {media_type} request {tmdb_id}"
         }
         
     except ValidationError as e:
         logger.error(f"Payload validation error: {e}")
         raise HTTPException(status_code=422, detail=str(e))
+
+async def process_single_request(media_type: str, tmdb_id: int, media_id: int):
+    """Process a single media request"""
+    try:
+        # Check library first
+        if await check_dmm_library(media_type, tmdb_id):
+            logger.info(f"{media_type.capitalize()} already exists in library")
+            if mark_completed(media_id, tmdb_id):
+                logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
+            return
+        
+        # If not in library, get details and process
+        if media_type == 'movie':
+            movie = Movie()
+            details = movie.details(tmdb_id)
+            title = f"{details.title} ({details.release_date[:4]})"
+            imdb_id = movie.external_ids(tmdb_id)['imdb_id']
+            url = f"https://debridmediamanager.com/movie/{imdb_id}"
+        else:  # TV Show
+            tv = TV()
+            details = tv.details(tmdb_id)
+            title = f"{details.name} ({details.first_air_date[:4]})"
+            imdb_id = tv.external_ids(tmdb_id)['imdb_id']
+            url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+        
+        if not imdb_id:
+            logger.error(f"No IMDB ID found for {media_type} {tmdb_id}")
+            return
+            
+        logger.info(f"Processing {media_type}: {title} (IMDB: {imdb_id})")
+        
+        # Process the request through DMM
+        driver.get(url)
+        await asyncio.sleep(2)
+        
+        if media_type == 'tv':
+            confirmation_flag = await asyncio.to_thread(handle_tv_show_page, title, driver)
+        else:
+            confirmation_flag = await asyncio.to_thread(handle_movie_page, title, driver)
+        
+        if confirmation_flag:
+            if mark_completed(media_id, tmdb_id):
+                logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
+            else:
+                logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
+        
+    except Exception as ex:
+        logger.error(f"Error processing {media_type} request {tmdb_id}: {ex}")
+        logger.exception(ex)
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
