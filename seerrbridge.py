@@ -619,40 +619,32 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
             details = tv.details(tmdb_id)
             search_term = details.name
         
-        # Wait for and find the search input
+        # Wait for and find the search input (using the placeholder text)
         search_input = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+            EC.presence_of_element_located((By.XPATH, "//input[@placeholder='search by filename/hash/id, supports regex']"))
         )
         
-        # Clear existing search and enter simplified search term
+        # Clear existing search and enter search term
         search_input.clear()
-        search_input.send_keys(search_term)
+        # Escape any special regex characters in the search term
+        escaped_search_term = re.escape(search_term)
+        search_input.send_keys(escaped_search_term)
+        logger.info(f"Entered search term: {escaped_search_term}")
         await asyncio.sleep(2)
         
-        # Look for items in the library
+        # Check if we find any results
         try:
-            library_items = WebDriverWait(driver, 10).until(
+            # Look for any row in the results table
+            results = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
             )
             
-            for item in library_items:
-                try:
-                    title_element = item.find_element(By.XPATH, ".//div[contains(@class, 'title')]")
-                    item_title = title_element.text.strip()
-                    logger.info(f"Found library item: {item_title}")
-                    
-                    # Check if the simplified search term is in the item title
-                    if search_term.lower() in item_title.lower():
-                        logger.success(f"Found matching item in library: {item_title}")
-                        return True
-                except:
-                    continue
+            if results:
+                logger.success(f"Found {len(results)} matching items in library")
+                return True
             
-            logger.info(f"No matching items found for: {search_term}")
-            return False
-                
         except TimeoutException:
-            logger.info(f"No results found in library for: {search_term}")
+            logger.info("No results found in library search")
             return False
             
     except Exception as e:
