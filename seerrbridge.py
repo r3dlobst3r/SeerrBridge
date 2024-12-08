@@ -640,29 +640,27 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         await asyncio.sleep(2)
 
         try:
-            # Look for library items using the table row structure
-            items_xpath = "//div[contains(@class, 'border-2')]//div[contains(@class, 'text-lg')]"
+            # Look for size values (e.g., "9.5 GB") as indicator of results
+            size_xpath = "//div[contains(text(), 'GB') or contains(text(), 'MB')]"
             
-            # First check if any results exist
-            try:
-                # Wait for either library items or "No results" message
-                WebDriverWait(driver, 5).until(
-                    lambda x: len(x.find_elements(By.XPATH, items_xpath)) > 0 or 
-                            len(x.find_elements(By.XPATH, "//div[contains(text(), 'No results')]")) > 0
-                )
-            except TimeoutException:
-                logger.warning("No results found after search")
-                return False
-
-            # Look for library items
-            library_items = driver.find_elements(By.XPATH, items_xpath)
+            # Wait a moment for results to load
+            await asyncio.sleep(2)
             
-            if library_items:
-                logger.info(f"Found {len(library_items)} items in results, checking titles...")
+            # Take a screenshot to debug
+            driver.save_screenshot("debug_search.png")
+            
+            # Check for results by looking for size values
+            size_elements = driver.find_elements(By.XPATH, size_xpath)
+            
+            if size_elements:
+                logger.info(f"Found {len(size_elements)} items with size values, checking titles...")
                 
-                for item in library_items:
+                # For each size element, look for its associated title
+                for size_elem in size_elements:
                     try:
-                        item_title = item.text.lower()
+                        # Navigate up to the row container and find the title
+                        row = size_elem.find_element(By.XPATH, "./ancestor::div[contains(@class, 'border-2')]")
+                        item_title = row.find_element(By.XPATH, ".//div[contains(@class, 'text-lg')]").text.lower()
                         logger.info(f"Checking library item: {item_title}")
                         
                         # Check if both title and year match
@@ -676,11 +674,13 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
                 logger.info("No exact match found in results")
                 return False
             else:
-                logger.info("No items found in library")
+                logger.info("No items found with size values")
                 return False
             
         except Exception as e:
             logger.error(f"Error searching library: {e}")
+            # Take error screenshot
+            driver.save_screenshot("error_search.png")
             return False
             
     except Exception as e:
