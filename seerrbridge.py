@@ -710,35 +710,76 @@ def handle_movie_page(title: str, driver) -> bool:
     """Handle the movie page interactions"""
     try:
         logger.info(f"Handling movie page for: {title}")
+        confirmation_flag = False
         
         # Wait for the status message about RD availability
         try:
             status_element = WebDriverWait(driver, 15).until(
                 EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
             )
+            logger.info(f"Status message: {status_element.text}")
         except TimeoutException:
             logger.warning("Timeout waiting for status message")
         
-        # Check for red buttons (100% RD) first
+        # Wait for the page to fully load and process results
+        await asyncio.sleep(2)
+        
+        # First check for red buttons (100% RD)
         red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
         if red_buttons:
-            logger.info(f"Found {len(red_buttons)} red button(s)")
-            return True
+            logger.info(f"Found {len(red_buttons)} red button(s) (100% RD)")
+            confirmation_flag = True
+            return confirmation_flag
             
-        # Check for Instant RD buttons
-        instant_rd_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Instant RD')]")
-        for button in instant_rd_buttons:
-            try:
-                button.click()
-                logger.info("Clicked Instant RD button")
-                return True
-            except Exception as e:
-                logger.error(f"Failed to click Instant RD button: {e}")
-                
-        return False
+        # Check for result boxes
+        try:
+            result_boxes = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'border-2')]"))
+            )
+            
+            logger.info(f"Found {len(result_boxes)} result boxes")
+            
+            for i, result_box in enumerate(result_boxes, 1):
+                try:
+                    # First try to find and click Instant RD button
+                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                    if instant_buttons:
+                        logger.info(f"Found Instant RD button in box {i}")
+                        instant_buttons[0].click()
+                        await asyncio.sleep(1)
+                        confirmation_flag = True
+                        break
+                        
+                    # If no Instant RD, try DL with RD
+                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+                    if dl_buttons:
+                        logger.info(f"Found DL with RD button in box {i}")
+                        dl_buttons[0].click()
+                        await asyncio.sleep(1)
+                        confirmation_flag = True
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing box {i}: {e}")
+                    continue
+                    
+        except TimeoutException:
+            logger.warning("Timeout waiting for result boxes")
+        
+        # Final check for red buttons after processing
+        if not confirmation_flag:
+            red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+            if red_buttons:
+                logger.info("Found red button(s) after processing")
+                confirmation_flag = True
+        
+        logger.info(f"Movie processing completed with confirmation: {confirmation_flag}")
+        return confirmation_flag
         
     except Exception as e:
         logger.error(f"Error handling movie page: {e}")
+        if hasattr(e, '__traceback__'):
+            logger.exception(e)
         return False
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
@@ -1363,12 +1404,14 @@ async def process_single_request(media_type: str, tmdb_id: int):
             title = f"{details.title} ({details.release_date[:4]})"
             imdb_id = movie.external_ids(tmdb_id)['imdb_id']
             url = f"https://debridmediamanager.com/movie/{imdb_id}"
+            media_id = details.id  # Get the media ID for marking as complete
         else:  # TV Show
             tv = TV()
             details = tv.details(tmdb_id)
             title = f"{details.name} ({details.first_air_date[:4]})"
             imdb_id = tv.external_ids(tmdb_id)['imdb_id']
             url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+            media_id = details.id  # Get the media ID for marking as complete
         
         if not imdb_id:
             logger.error(f"No IMDB ID found for {media_type} {tmdb_id}")
@@ -1376,20 +1419,25 @@ async def process_single_request(media_type: str, tmdb_id: int):
             
         logger.info(f"Processing {media_type}: {title} (IMDB: {imdb_id})")
         
-        # Process the request through DMM
+        # Navigate to the media page
         driver.get(url)
         await asyncio.sleep(2)
         
+        # Process based on media type
         if media_type == 'tv':
             confirmation_flag = await asyncio.to_thread(handle_tv_show_page, title, driver)
         else:
             confirmation_flag = await asyncio.to_thread(handle_movie_page, title, driver)
         
+        # Handle the completion marking
         if confirmation_flag:
+            logger.info(f"Successfully processed {media_type}. Marking as complete...")
             if mark_completed(media_id, tmdb_id):
                 logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
             else:
                 logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
+        else:
+            logger.warning(f"Failed to process {media_type}. Not marking as complete.")
         
     except Exception as ex:
         logger.error(f"Error processing {media_type} request {tmdb_id}: {ex}")
