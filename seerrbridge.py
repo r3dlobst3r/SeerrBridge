@@ -763,14 +763,11 @@ async def handle_movie_page(title: str, driver) -> bool:
                 # Wait up to 10 seconds for the download to start
                 for _ in range(10):
                     success = driver.execute_script("""
-                        const successMsg = document.querySelector('div[role="status"]');
-                        if (successMsg && successMsg.textContent.includes('Successfully')) {
-                            return true;
-                        }
+                        // Look for the red button with RD (100%)
                         const buttons = Array.from(document.querySelectorAll('button'));
                         return buttons.some(button => 
-                            (button.classList.contains('bg-red-900/30') && button.textContent.includes('Added')) ||
-                            button.textContent.includes('✓')
+                            button.classList.contains('bg-red-900/30') && 
+                            button.textContent.includes('RD (100%)')
                         );
                     """)
                     
@@ -798,14 +795,11 @@ async def handle_movie_page(title: str, driver) -> bool:
                 # Wait up to 10 seconds for the download to start
                 for _ in range(10):
                     success = driver.execute_script("""
-                        const successMsg = document.querySelector('div[role="status"]');
-                        if (successMsg && successMsg.textContent.includes('Successfully')) {
-                            return true;
-                        }
+                        // Look for the red button with RD (100%)
                         const buttons = Array.from(document.querySelectorAll('button'));
                         return buttons.some(button => 
-                            (button.classList.contains('bg-red-900/30') && button.textContent.includes('Added')) ||
-                            button.textContent.includes('✓')
+                            button.classList.contains('bg-red-900/30') && 
+                            button.textContent.includes('RD (100%)')
                         );
                     """)
                     
