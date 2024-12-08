@@ -730,6 +730,10 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for page to load completely
         time.sleep(2)
         
+        # Take initial screenshot
+        driver.save_screenshot("/config/screenshots/before_click.png")
+        logger.info("Saved initial state screenshot to /config/screenshots/before_click.png")
+        
         # Find the button by looking for the lightning bolt emoji and Instant RD text
         button_xpath = "//button[contains(@class, 'border-green-500') and .//span[contains(text(), '⚡') and contains(text(), 'Instant RD')]]"
         
@@ -738,27 +742,25 @@ async def handle_movie_page(title: str, driver) -> bool:
             EC.presence_of_element_located((By.XPATH, button_xpath))
         )
         
+        # Highlight the button we found
+        driver.execute_script("""
+            var element = arguments[0];
+            element.style.border = "5px solid red";
+        """, button)
+        driver.save_screenshot("/config/screenshots/button_found.png")
+        logger.info("Saved screenshot with highlighted button to /config/screenshots/button_found.png")
+        
         # Log button properties
         logger.info(f"Button text: {button.text}")
         logger.info(f"Button classes: {button.get_attribute('class')}")
         logger.info(f"Button is displayed: {button.is_displayed()}")
         logger.info(f"Button is enabled: {button.is_enabled()}")
         
-        # Scroll to button and wait
-        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+        # Try to click and take screenshot after
+        button.click()
         time.sleep(1)
-        
-        # Try to click the button's span element instead
-        try:
-            span = button.find_element(By.TAG_NAME, "span")
-            logger.info("Found span element inside button")
-            span.click()
-            logger.info("Clicked span element")
-        except Exception as e:
-            logger.warning(f"Failed to click span: {e}")
-            # Fallback to button click
-            button.click()
-            logger.info("Clicked button directly")
+        driver.save_screenshot("/config/screenshots/after_click.png")
+        logger.info("Saved post-click screenshot to /config/screenshots/after_click.png")
         
         # Look for success indicator in first result
         success = WebDriverWait(driver, 10).until(
@@ -771,6 +773,12 @@ async def handle_movie_page(title: str, driver) -> bool:
 
     except Exception as e:
         logger.error(f"Error handling movie page: {str(e)}")
+        # Take error state screenshot
+        try:
+            driver.save_screenshot("/config/screenshots/error_state.png")
+            logger.info("Saved error state screenshot to /config/screenshots/error_state.png")
+        except:
+            pass
         return False
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
