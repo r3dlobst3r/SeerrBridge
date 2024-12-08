@@ -749,7 +749,10 @@ async def handle_movie_page(title: str, driver) -> bool:
             # Direct JavaScript click on the first Instant RD button
             driver.execute_script("""
                 const buttons = Array.from(document.querySelectorAll('button'));
-                const instantRdButton = buttons.find(button => button.textContent.includes('⚡ Instant RD'));
+                const instantRdButton = buttons.find(button => {
+                    return button.classList.contains('bg-green-900/30') && 
+                           button.innerHTML.includes('Instant RD');
+                });
                 if (instantRdButton) {
                     instantRdButton.click();
                     return true;
@@ -762,7 +765,7 @@ async def handle_movie_page(title: str, driver) -> bool:
             # Check if the click worked
             success = driver.execute_script("""
                 return Array.from(document.querySelectorAll('button')).some(button => 
-                    button.textContent.includes('✓ Added')
+                    button.classList.contains('bg-red-900/30')
                 );
             """)
             
@@ -778,7 +781,9 @@ async def handle_movie_page(title: str, driver) -> bool:
             # Click Single filter using JavaScript
             driver.execute_script("""
                 const buttons = Array.from(document.querySelectorAll('button'));
-                const singleButton = buttons.find(button => button.textContent === 'Single');
+                const singleButton = buttons.find(button => 
+                    button.textContent.trim() === 'Single'
+                );
                 if (singleButton) {
                     singleButton.click();
                 }
@@ -797,7 +802,8 @@ async def handle_movie_page(title: str, driver) -> bool:
                 const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
                 for (const box of boxes) {
                     const instantButton = Array.from(box.querySelectorAll('button')).find(
-                        button => button.textContent.includes('⚡ Instant RD')
+                        button => button.classList.contains('bg-green-900/30') && 
+                                 button.innerHTML.includes('Instant RD')
                     );
                     if (instantButton) {
                         instantButton.click();
@@ -811,7 +817,7 @@ async def handle_movie_page(title: str, driver) -> bool:
                 await asyncio.sleep(2)
                 added_check = driver.execute_script("""
                     return Array.from(document.querySelectorAll('button')).some(button => 
-                        button.textContent.includes('✓ Added')
+                        button.classList.contains('bg-red-900/30')
                     );
                 """)
                 if added_check:
@@ -823,7 +829,8 @@ async def handle_movie_page(title: str, driver) -> bool:
                 const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
                 for (const box of boxes) {
                     const dlButton = Array.from(box.querySelectorAll('button')).find(
-                        button => button.textContent.includes('DL with RD')
+                        button => button.classList.contains('bg-blue-900/30') && 
+                                 button.textContent.includes('DL with RD')
                     );
                     if (dlButton) {
                         dlButton.click();
@@ -837,7 +844,7 @@ async def handle_movie_page(title: str, driver) -> bool:
                 await asyncio.sleep(2)
                 added_check = driver.execute_script("""
                     return Array.from(document.querySelectorAll('button')).some(button => 
-                        button.textContent.includes('✓ Added')
+                        button.classList.contains('bg-red-900/30')
                     );
                 """)
                 if added_check:
