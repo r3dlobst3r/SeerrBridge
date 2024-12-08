@@ -640,33 +640,50 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         await asyncio.sleep(2)
 
         try:
-            # Find all library items
-            items = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
-            )
+            # Look for trash icons using the specific SVG path
+            trash_xpath = "//svg[@viewBox='0 0 448 512']/path[@d='M432 32H312l-9.4-18.7A24 24 0 0 0 281.1 0H166.8a23.72 23.72 0 0 0-21.4 13.3L136 32H16A16 16 0 0 0 0 48v32a16 16 0 0 0 16 16h416a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16zM53.2 467a48 48 0 0 0 47.9 45h245.8a48 48 0 0 0 47.9-45L416 128H32z']"
             
-            if items:
-                logger.info(f"Found {len(items)} items, checking for exact match...")
+            # First check if any results exist
+            try:
+                # Wait for either trash icons or "No results" message
+                WebDriverWait(driver, 5).until(
+                    lambda x: len(x.find_elements(By.XPATH, trash_xpath)) > 0 or 
+                            len(x.find_elements(By.XPATH, "//div[contains(text(), 'No results')]")) > 0
+                )
+            except TimeoutException:
+                logger.warning("No results or trash icons found after search")
+                return False
+
+            # Look for trash icons
+            trash_items = driver.find_elements(By.XPATH, trash_xpath)
+            
+            if trash_items:
+                logger.info(f"Found {len(trash_items)} items with trash icons, checking titles...")
                 
-                for item in items:
+                # For each trash icon, get its parent container and then find the title
+                for trash in trash_items:
                     try:
-                        # Get the title text from the library item
-                        item_title = item.find_element(By.XPATH, ".//div[contains(@class, 'Title')]").text.lower()
+                        # Navigate up to find the container, then find the title
+                        container = trash.find_element(By.XPATH, "./ancestor::div[contains(@class, 'border-2')]")
+                        item_title = container.find_element(By.XPATH, ".//div[contains(@class, 'text-lg')]").text.lower()
                         logger.info(f"Checking library item: {item_title}")
                         
                         # Check if both title and year match
                         if full_title in item_title and year in item_title:
-                            logger.success(f"Found exact match: {item_title}")
+                            logger.success(f"Found exact match with trash icon: {item_title}")
                             return True
                     except Exception as e:
                         logger.warning(f"Error checking item title: {e}")
                         continue
                 
-                logger.info("No exact match found in results")
+                logger.info("No exact match found in results with trash icons")
+                return False
+            else:
+                logger.info("No items with trash icons found")
                 return False
             
-        except TimeoutException:
-            logger.info("No results found in library search")
+        except Exception as e:
+            logger.error(f"Error searching library: {e}")
             return False
             
     except Exception as e:
