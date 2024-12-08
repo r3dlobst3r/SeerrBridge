@@ -542,36 +542,43 @@ async def process_media_requests():
         logger.info(f"Processing {media_type} request with TMDB ID {tmdb_id} and media ID {media_id}")
         
         try:
-            # Get details based on media type
+            # Check library first
+            if await check_dmm_library(media_type, tmdb_id):
+                logger.info(f"{media_type.capitalize()} already exists in library")
+                if mark_completed(media_id, tmdb_id):
+                    logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
+                continue
+            
+            # If not in library, get details and process
             if media_type == 'movie':
                 movie = Movie()
                 details = movie.details(tmdb_id)
                 title = f"{details.title} ({details.release_date[:4]})"
-                # Get external IDs for movie
                 imdb_id = movie.external_ids(tmdb_id)['imdb_id']
+                url = f"https://debridmediamanager.com/movie/{imdb_id}"
             else:  # TV Show
                 tv = TV()
                 details = tv.details(tmdb_id)
                 title = f"{details.name} ({details.first_air_date[:4]})"
-                # Get external IDs for TV show
                 imdb_id = tv.external_ids(tmdb_id)['imdb_id']
+                url = f"https://debridmediamanager.com/show/{imdb_id}/1"  # Start with season 1
             
             if not imdb_id:
                 logger.error(f"No IMDB ID found for {media_type} {tmdb_id}")
                 continue
                 
             logger.info(f"Processing {media_type}: {title} (IMDB: {imdb_id})")
+            logger.info(f"Navigating directly to: {url}")
             
-            # Navigate directly to the correct URL based on media type
-            if media_type == 'movie':
-                url = f"https://debridmediamanager.com/movie/{imdb_id}"
-            else:
-                url = f"https://debridmediamanager.com/show/{imdb_id}/1"  # Start with season 1
-                
+            # Navigate directly to the media page
             driver.get(url)
             await asyncio.sleep(2)  # Wait for page to load
             
-            confirmation_flag = await asyncio.to_thread(search_on_debrid, title, driver)
+            # For TV shows, we need to handle the season page differently
+            if media_type == 'tv':
+                confirmation_flag = await asyncio.to_thread(handle_tv_show_page, title, driver)
+            else:
+                confirmation_flag = await asyncio.to_thread(handle_movie_page, title, driver)
             
             if confirmation_flag:
                 if mark_completed(media_id, tmdb_id):
@@ -586,6 +593,91 @@ async def process_media_requests():
             logger.exception(ex)  # This will print the full traceback
 
     logger.info("Finished processing all current requests. Waiting for new requests.")
+
+async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
+    """Check if media exists in DMM library"""
+    try:
+        # Navigate to library page
+        driver.get("https://debridmediamanager.com/library")
+        await asyncio.sleep(2)  # Wait for library to load
+        
+        # Get title from TMDB
+        if media_type == "movie":
+            movie = Movie()
+            details = movie.details(tmdb_id)
+            search_term = details.title
+        else:
+            tv = TV()
+            details = tv.details(tmdb_id)
+            search_term = details.name
+            
+        logger.info(f"Checking library for: {search_term}")
+        
+        # Wait for and find the search input
+        search_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+        )
+        
+        # Clear any existing search and enter new search term
+        search_input.clear()
+        search_input.send_keys(search_term)
+        await asyncio.sleep(1)  # Wait for search results
+        
+        # Look for items in the library
+        try:
+            library_items = WebDriverWait(driver, 5).until(
+                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
+            )
+            
+            if library_items:
+                logger.success(f"Found {search_term} in library!")
+                return True
+                
+        except TimeoutException:
+            logger.info(f"No results found in library for: {search_term}")
+            return False
+            
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error checking library: {e}")
+        return False
+
+def handle_tv_show_page(title: str, driver) -> bool:
+    """Handle TV show page interactions"""
+    try:
+        # Wait for the page to load and check for RD buttons
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'border-2')]"))
+        )
+        
+        # Find all result boxes
+        result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-2')]")
+        logger.info(f"Found {len(result_boxes)} result boxes")
+        
+        for box in result_boxes:
+            try:
+                # Check for red buttons (100% RD) first
+                red_buttons = box.find_elements(By.XPATH, ".//button[contains(@class, 'bg-red-900/30')]")
+                if red_buttons:
+                    logger.info("Found red button (100% RD). Clicking...")
+                    red_buttons[0].click()
+                    return True
+                    
+                # If no red buttons, try other buttons
+                if prioritize_buttons_in_box(box):
+                    return True
+                    
+            except (StaleElementReferenceException, ElementClickInterceptedException) as e:
+                logger.warning(f"Error interacting with result box: {e}")
+                continue
+                
+        logger.warning("No suitable buttons found for TV show")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error handling TV show page: {e}")
+        return False
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
     """Mark item as completed in overseerr"""
@@ -907,7 +999,6 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-                )
 
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
