@@ -625,11 +625,12 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         
         # Look for items in the library
         try:
-            library_items = WebDriverWait(driver, 5).until(
+            # Wait for library items to be present
+            status_element = WebDriverWait(driver, 15).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
             )
             
-            if library_items:
+            if status_element:
                 logger.success(f"Found {search_term} in library!")
                 return True
                 
