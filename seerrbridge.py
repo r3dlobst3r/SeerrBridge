@@ -562,7 +562,7 @@ async def process_media_requests():
                 details = tv.details(tmdb_id)
                 title = f"{details.name} ({details.first_air_date[:4]})"
                 imdb_id = tv.external_ids(tmdb_id)['imdb_id']
-                url = f"https://debridmediamanager.com/show/{imdb_id}/1"  # Start with season 1
+                url = f"https://debridmediamanager.com/show/{imdb_id}/1"
             
             if not imdb_id:
                 logger.error(f"No IMDB ID found for {media_type} {tmdb_id}")
@@ -577,15 +577,23 @@ async def process_media_requests():
             
             # For TV shows, we need to handle the season page differently
             if media_type == 'tv':
-                confirmation_flag = await asyncio.to_thread(handle_tv_show_page, title, driver)
+                confirmation_flag = await handle_tv_show_page(title, driver)
             else:
-                confirmation_flag = await asyncio.to_thread(handle_movie_page, title, driver)
+                confirmation_flag = await handle_movie_page(title, driver)
             
             if confirmation_flag:
-                if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
+                # Wait a moment to ensure the download actually started
+                await asyncio.sleep(2)
+                # Verify the download started by checking for success indicators
+                success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                if success_indicators:
+                    logger.info("Download confirmed - found success indicators")
+                    if mark_completed(media_id, tmdb_id):
+                        logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
+                    else:
+                        logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
                 else:
-                    logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
+                    logger.warning(f"Download not confirmed for {media_type} {media_id} - not marking as complete")
             else:
                 logger.info(f"{media_type} {media_id} was not properly confirmed. Skipping marking as completed.")
                 
@@ -718,13 +726,20 @@ async def handle_movie_page(title: str, driver) -> bool:
                 EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
             )
             logger.info(f"Status message: {status_element.text}")
+            
+            # Check if no results were found
+            if "No results found" in status_element.text:
+                logger.warning("No results found for this movie")
+                return False
+                
         except TimeoutException:
             logger.warning("Timeout waiting for status message")
+            return False
         
-        # Wait for the page to fully load and process results
+        # Wait for the page to fully load
         await asyncio.sleep(2)
         
-        # First check for red buttons (100% RD)
+        # First check for existing red buttons (100% RD)
         red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
         if red_buttons:
             logger.info(f"Found {len(red_buttons)} red button(s) (100% RD)")
@@ -737,6 +752,10 @@ async def handle_movie_page(title: str, driver) -> bool:
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'border-2')]"))
             )
             
+            if not result_boxes:
+                logger.warning("No result boxes found")
+                return False
+                
             logger.info(f"Found {len(result_boxes)} result boxes")
             
             for i, result_box in enumerate(result_boxes, 1):
@@ -746,18 +765,28 @@ async def handle_movie_page(title: str, driver) -> bool:
                     if instant_buttons:
                         logger.info(f"Found Instant RD button in box {i}")
                         instant_buttons[0].click()
-                        await asyncio.sleep(1)
-                        confirmation_flag = True
-                        break
+                        await asyncio.sleep(2)
+                        
+                        # Verify the button click worked
+                        success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                        if success_indicators:
+                            logger.info("Instant RD button click confirmed successful")
+                            confirmation_flag = True
+                            break
                         
                     # If no Instant RD, try DL with RD
                     dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
                     if dl_buttons:
                         logger.info(f"Found DL with RD button in box {i}")
                         dl_buttons[0].click()
-                        await asyncio.sleep(1)
-                        confirmation_flag = True
-                        break
+                        await asyncio.sleep(2)
+                        
+                        # Verify the button click worked
+                        success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                        if success_indicators:
+                            logger.info("DL with RD button click confirmed successful")
+                            confirmation_flag = True
+                            break
                         
                 except Exception as e:
                     logger.warning(f"Error processing box {i}: {e}")
@@ -765,13 +794,7 @@ async def handle_movie_page(title: str, driver) -> bool:
                     
         except TimeoutException:
             logger.warning("Timeout waiting for result boxes")
-        
-        # Final check for red buttons after processing
-        if not confirmation_flag:
-            red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-            if red_buttons:
-                logger.info("Found red button(s) after processing")
-                confirmation_flag = True
+            return False
         
         logger.info(f"Movie processing completed with confirmation: {confirmation_flag}")
         return confirmation_flag
