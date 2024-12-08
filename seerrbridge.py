@@ -739,14 +739,24 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for the page to fully load
         await asyncio.sleep(2)
         
-        # First check for existing red buttons (100% RD)
-        red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-        if red_buttons:
-            logger.info(f"Found {len(red_buttons)} red button(s) (100% RD)")
-            confirmation_flag = True
-            return confirmation_flag
+        # First try to click the main "Instant RD" button at the top of the page
+        try:
+            main_instant_rd = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '⚡ Instant RD')]"))
+            )
+            logger.info("Found main Instant RD button at top of page")
+            main_instant_rd.click()
+            await asyncio.sleep(2)
             
-        # Check for result boxes
+            # Verify the download started
+            success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+            if success_indicators:
+                logger.info("Main Instant RD button click confirmed successful")
+                return True
+        except (TimeoutException, ElementClickInterceptedException):
+            logger.info("No main Instant RD button available or not clickable")
+        
+        # If main button didn't work, check individual results
         try:
             result_boxes = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'border-2')]"))
@@ -758,10 +768,10 @@ async def handle_movie_page(title: str, driver) -> bool:
                 
             logger.info(f"Found {len(result_boxes)} result boxes")
             
+            # First pass: Try all Instant RD buttons
             for i, result_box in enumerate(result_boxes, 1):
                 try:
-                    # First try to find and click Instant RD button
-                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(@class, 'bg-green-900/30') and contains(text(), 'Instant RD')]")
                     if instant_buttons:
                         logger.info(f"Found Instant RD button in box {i}")
                         instant_buttons[0].click()
@@ -771,10 +781,14 @@ async def handle_movie_page(title: str, driver) -> bool:
                         success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                         if success_indicators:
                             logger.info("Instant RD button click confirmed successful")
-                            confirmation_flag = True
-                            break
-                        
-                    # If no Instant RD, try DL with RD
+                            return True
+                except Exception as e:
+                    logger.warning(f"Error clicking Instant RD button in box {i}: {e}")
+                    continue
+            
+            # Second pass: Try all DL with RD buttons
+            for i, result_box in enumerate(result_boxes, 1):
+                try:
                     dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
                     if dl_buttons:
                         logger.info(f"Found DL with RD button in box {i}")
@@ -785,11 +799,9 @@ async def handle_movie_page(title: str, driver) -> bool:
                         success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
                         if success_indicators:
                             logger.info("DL with RD button click confirmed successful")
-                            confirmation_flag = True
-                            break
-                        
+                            return True
                 except Exception as e:
-                    logger.warning(f"Error processing box {i}: {e}")
+                    logger.warning(f"Error clicking DL with RD button in box {i}: {e}")
                     continue
                     
         except TimeoutException:
@@ -807,7 +819,7 @@ async def handle_movie_page(title: str, driver) -> bool:
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
     """Mark item as completed in overseerr"""
-    url = f"{OVERSEERR_API_BASE_URL}/media/{media_id}/available"
+    url = f"{OVERSEERR_API_BASE_URL}/media/{tmdb_id}/available"
     headers = {
         "X-Api-Key": OVERSEERR_API_KEY,
         "Content-Type": "application/json"
@@ -816,24 +828,15 @@ def mark_completed(media_id: int, tmdb_id: int) -> bool:
     
     try:
         response = requests.post(url, headers=headers, json=data)
-        response_data = response.json()  # Parse the JSON response
-        
         if response.status_code == 200:
-            # Verify that the response contains the correct tmdb_id
-            if response_data.get('tmdbId') == tmdb_id:
-                logger.info(f"Marked media {media_id} as completed in overseerr. Response: {response_data}")
-                return True
-            else:
-                logger.error(f"TMDB ID mismatch for media {media_id}. Expected {tmdb_id}, got {response_data.get('tmdbId')}")
-                return False
+            response_data = response.json()
+            logger.info(f"Marked media {tmdb_id} as completed in overseerr. Response: {response_data}")
+            return True
         else:
-            logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: Status code {response.status_code}, Response: {response_data}")
+            logger.error(f"Failed to mark media as completed in overseerr with id {tmdb_id}: Status code {response.status_code}, Response: {response.json()}")
             return False
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: {str(e)}")
-        return False
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to decode JSON response for media {media_id}: {str(e)}")
+    except Exception as e:
+        logger.error(f"Failed to mark media as completed in overseerr with id {tmdb_id}: {str(e)}")
         return False
 
 
