@@ -725,7 +725,6 @@ async def handle_movie_page(title: str, driver) -> bool:
     """Handle the movie page interactions"""
     try:
         logger.info(f"Handling movie page for: {title}")
-        confirmation_flag = False
         
         # Wait for the status message about RD availability
         try:
@@ -747,127 +746,77 @@ async def handle_movie_page(title: str, driver) -> bool:
         
         # First try to click the main "Instant RD" button at the top of the page
         try:
-            # Wait for the button container at the top
-            button_container = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'flex gap-2')]"))
+            # Wait for and find all buttons
+            buttons = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.TAG_NAME, "button"))
             )
             
-            # Find the Instant RD button within the container
-            main_instant_rd = button_container.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
-            logger.info("Found main Instant RD button at top of page")
+            # Look for the Instant RD button by its exact text
+            for button in buttons:
+                if "⚡ Instant RD" in button.text:
+                    logger.info("Found main Instant RD button")
+                    # Try direct click
+                    button.click()
+                    await asyncio.sleep(2)
+                    
+                    # Verify the download started
+                    success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
+                    if success_indicators:
+                        logger.info("Main Instant RD button click confirmed successful")
+                        return True
+                    break
             
-            # Scroll the button into view
-            driver.execute_script("arguments[0].scrollIntoView(true);", main_instant_rd)
-            await asyncio.sleep(1)
-            
-            # Try clicking
-            try:
-                actions = ActionChains(driver)
-                actions.move_to_element(main_instant_rd)
-                actions.click()
-                actions.perform()
-            except:
-                driver.execute_script("arguments[0].click();", main_instant_rd)
-            
-            await asyncio.sleep(2)
-            
-            # Verify the download started
-            success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-            if success_indicators:
-                logger.info("Main Instant RD button click confirmed successful")
-                return True
-                
         except Exception as e:
             logger.info(f"Could not use main Instant RD button: {str(e)}")
         
-        # If main button didn't work, check individual results
+        # If main button didn't work, try the individual result boxes
         try:
-            # Wait for the filter options to be present
-            filter_container = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'flex gap-2')]"))
-            )
-            
-            # Click "Single" filter if not already selected
-            single_filter = filter_container.find_element(By.XPATH, ".//button[text()='Single']")
-            if 'bg-blue-900/30' not in single_filter.get_attribute('class'):
-                single_filter.click()
+            # Click "Single" filter if it exists
+            single_buttons = driver.find_elements(By.XPATH, "//button[text()='Single']")
+            if single_buttons:
+                single_buttons[0].click()
                 await asyncio.sleep(1)
             
-            # Get all result boxes
-            result_boxes = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'border-2')]"))
-            )
-            
-            if not result_boxes:
-                logger.warning("No result boxes found")
-                return False
-                
+            # Find all result boxes
+            result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-2')]")
             logger.info(f"Found {len(result_boxes)} result boxes")
             
-            # First pass: Try all Instant RD buttons
-            for i, result_box in enumerate(result_boxes, 1):
+            # First try Instant RD buttons
+            for box in result_boxes:
                 try:
-                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
+                    instant_buttons = box.find_elements(By.XPATH, ".//button[contains(text(), '⚡ Instant RD')]")
                     if instant_buttons:
-                        logger.info(f"Found Instant RD button in box {i}")
-                        # Scroll the button into view
-                        driver.execute_script("arguments[0].scrollIntoView(true);", instant_buttons[0])
-                        await asyncio.sleep(1)
-                        
-                        try:
-                            actions = ActionChains(driver)
-                            actions.move_to_element(instant_buttons[0])
-                            actions.click()
-                            actions.perform()
-                        except:
-                            driver.execute_script("arguments[0].click();", instant_buttons[0])
-                        
+                        instant_buttons[0].click()
                         await asyncio.sleep(2)
                         
-                        # Verify the button click worked
-                        success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                        success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
                         if success_indicators:
-                            logger.info("Instant RD button click confirmed successful")
+                            logger.info("Instant RD button click successful")
                             return True
                 except Exception as e:
-                    logger.warning(f"Error clicking Instant RD button in box {i}: {e}")
                     continue
             
-            # Second pass: Try all DL with RD buttons
-            for i, result_box in enumerate(result_boxes, 1):
+            # Then try DL with RD buttons
+            for box in result_boxes:
                 try:
-                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(@class, 'bg-blue-900/30')]")
+                    dl_buttons = box.find_elements(By.XPATH, ".//button[text()='DL with RD']")
                     if dl_buttons:
-                        logger.info(f"Found DL with RD button in box {i}")
-                        # Scroll the button into view
-                        driver.execute_script("arguments[0].scrollIntoView(true);", dl_buttons[0])
-                        await asyncio.sleep(1)
-                        
-                        try:
-                            actions = ActionChains(driver)
-                            actions.move_to_element(dl_buttons[0])
-                            actions.click()
-                            actions.perform()
-                        except:
-                            driver.execute_script("arguments[0].click();", dl_buttons[0])
-                        
+                        dl_buttons[0].click()
                         await asyncio.sleep(2)
                         
-                        # Verify the button click worked
-                        success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+                        success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
                         if success_indicators:
-                            logger.info("DL with RD button click confirmed successful")
+                            logger.info("DL with RD button click successful")
                             return True
                 except Exception as e:
-                    logger.warning(f"Error clicking DL with RD button in box {i}: {e}")
                     continue
                     
-        except TimeoutException:
-            logger.warning("Timeout waiting for result boxes")
+        except Exception as e:
+            logger.error(f"Error processing result boxes: {str(e)}")
             return False
         
-        logger.info(f"Movie processing completed with confirmation: {confirmation_flag}")
-        return confirmation_flag
+        logger.warning("No successful button clicks")
+        return False
         
     except Exception as e:
         logger.error(f"Error handling movie page: {e}")
