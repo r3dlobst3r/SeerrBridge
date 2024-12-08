@@ -598,35 +598,56 @@ async def process_media_requests():
 async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
     """Check if media exists in DMM library"""
     try:
-        # Navigate to library page
-        driver.get("https://debridmediamanager.com/library")
-        await asyncio.sleep(2)  # Wait for library to load
-        
-        # Get title from TMDB
-        if media_type == "movie":
-            movie = Movie()
-            details = movie.details(tmdb_id)
-            search_term = details.title
-        else:
-            tv = TV()
-            details = tv.details(tmdb_id)
-            search_term = details.name
-            
-        logger.info(f"Checking library for: {search_term}")
-        
-        # Wait for and find the search input
-        search_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-        )
-        
-        # Clear any existing search and enter new search term
-        search_input.clear()
-        search_input.send_keys(search_term)
-        await asyncio.sleep(1)  # Wait for search results
-        
-        # Look for items in the library
+        # Verify driver is initialized
+        if not driver:
+            logger.error("WebDriver not initialized")
+            return False
+
+        # Navigate to library page with explicit wait and error handling
         try:
-            library_items = WebDriverWait(driver, 5).until(
+            driver.get("https://debridmediamanager.com/library")
+            await asyncio.sleep(2)  # Wait for initial page load
+        except Exception as e:
+            logger.error(f"Failed to navigate to library page: {e}")
+            return False
+        
+        # Get title from TMDB with error handling
+        try:
+            if media_type == "movie":
+                movie = Movie()
+                details = movie.details(tmdb_id)
+                search_term = details.title
+            else:
+                tv = TV()
+                details = tv.details(tmdb_id)
+                search_term = details.name
+                
+            logger.info(f"Checking library for: {search_term}")
+        except Exception as e:
+            logger.error(f"Failed to get title from TMDB: {e}")
+            return False
+        
+        # Wait for and find the search input with explicit timeout
+        try:
+            search_input = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+            )
+            
+            # Clear existing search and enter new search term
+            search_input.clear()
+            search_input.send_keys(search_term)
+            await asyncio.sleep(2)  # Wait for search results
+            
+        except TimeoutException:
+            logger.error("Search input not found within timeout period")
+            return False
+        except Exception as e:
+            logger.error(f"Error interacting with search input: {e}")
+            return False
+        
+        # Look for items in the library with explicit wait
+        try:
+            library_items = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
             )
             
@@ -637,11 +658,16 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         except TimeoutException:
             logger.info(f"No results found in library for: {search_term}")
             return False
+        except Exception as e:
+            logger.error(f"Error checking library items: {e}")
+            return False
             
         return False
         
     except Exception as e:
         logger.error(f"Error checking library: {e}")
+        if hasattr(e, '__traceback__'):
+            logger.exception(e)  # Log full traceback if available
         return False
 
 def handle_tv_show_page(title: str, driver) -> bool:
