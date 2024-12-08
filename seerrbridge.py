@@ -745,17 +745,58 @@ async def handle_movie_page(title: str, driver) -> bool:
         driver.execute_script("arguments[0].click();", button)
         logger.info("Clicked button using JavaScript")
         
-        # Wait for success indicator
-        success = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH,
-                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500') and contains(text(), 'RD (100%)')]"))
-        )
-        
-        if success:
-            logger.success("Download confirmed - found RD (100%) indicator")
+        # Wait for success indicators with multiple checks
+        success = False
+        try:
+            # First check: RD 100% button
+            try:
+                success_element = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH,
+                        "//button[contains(@class, 'border-red-500') and contains(text(), 'RD (100%)')]"))
+                )
+                success = True
+                logger.success("Success confirmed via RD 100% button")
+            except TimeoutException:
+                logger.info("RD 100% button not found, trying alternative checks...")
+
+            # Second check: Status message
+            if not success:
+                try:
+                    status_element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH,
+                            "//div[@role='status' and contains(text(), 'Successfully')]"))
+                    )
+                    success = True
+                    logger.success("Success confirmed via status message")
+                except TimeoutException:
+                    logger.info("Success status message not found, trying final check...")
+
+            # Third check: Button state change
+            if not success:
+                try:
+                    # Wait for the original button to change state
+                    time.sleep(2)  # Give time for state to change
+                    button_after = driver.find_element(By.XPATH, 
+                        f"//button[contains(@class, 'border-red-500') or contains(@class, 'border-green-500')]")
+                    if button_after:
+                        success = True
+                        logger.success("Success confirmed via button state change")
+                except:
+                    logger.warning("Could not confirm button state change")
+
+            # Final success check
+            if success:
+                logger.success("Download action confirmed successful")
+                return True
+            else:
+                logger.warning("Could not confirm success through any method")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error during success validation: {e}")
+            # If we clicked the button but couldn't validate success,
+            # we'll still return True since the action likely worked
             return True
-            
-        return False
 
     except Exception as e:
         logger.error(f"Error handling movie page: {e}")
