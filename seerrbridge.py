@@ -547,14 +547,20 @@ async def process_media_requests():
                 movie = Movie()
                 details = movie.details(tmdb_id)
                 title = f"{details.title} ({details.release_date[:4]})"
-                imdb_id = details.external_ids['imdb_id']
+                # Get external IDs for movie
+                imdb_id = movie.external_ids(tmdb_id)['imdb_id']
             else:  # TV Show
                 tv = TV()
                 details = tv.details(tmdb_id)
                 title = f"{details.name} ({details.first_air_date[:4]})"
-                imdb_id = details.external_ids['imdb_id']
+                # Get external IDs for TV show
+                imdb_id = tv.external_ids(tmdb_id)['imdb_id']
             
-            logger.info(f"Processing {media_type}: {title}")
+            if not imdb_id:
+                logger.error(f"No IMDB ID found for {media_type} {tmdb_id}")
+                continue
+                
+            logger.info(f"Processing {media_type}: {title} (IMDB: {imdb_id})")
             
             # Navigate directly to the correct URL based on media type
             if media_type == 'movie':
