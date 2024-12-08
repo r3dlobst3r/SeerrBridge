@@ -28,7 +28,12 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from dotenv import load_dotenv
-from selenium.common.exceptions import StaleElementReferenceException, NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    TimeoutException,
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+    NoSuchElementException
+)
 from asyncio import Queue
 from datetime import datetime, timedelta
 from deep_translator import GoogleTranslator
@@ -742,10 +747,10 @@ async def handle_movie_page(title: str, driver) -> bool:
         # First try to click the main "Instant RD" button at the top of the page
         try:
             main_instant_rd = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '⚡ Instant RD')]"))
+                EC.element_to_be_clickable((By.XPATH, "//button[text()='⚡ Instant RD']"))
             )
             logger.info("Found main Instant RD button at top of page")
-            main_instant_rd.click()
+            driver.execute_script("arguments[0].click();", main_instant_rd)
             await asyncio.sleep(2)
             
             # Verify the download started
@@ -753,8 +758,8 @@ async def handle_movie_page(title: str, driver) -> bool:
             if success_indicators:
                 logger.info("Main Instant RD button click confirmed successful")
                 return True
-        except (TimeoutException, ElementClickInterceptedException):
-            logger.info("No main Instant RD button available or not clickable")
+        except Exception as e:
+            logger.info(f"Could not use main Instant RD button: {e}")
         
         # If main button didn't work, check individual results
         try:
@@ -771,10 +776,10 @@ async def handle_movie_page(title: str, driver) -> bool:
             # First pass: Try all Instant RD buttons
             for i, result_box in enumerate(result_boxes, 1):
                 try:
-                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[contains(@class, 'bg-green-900/30') and contains(text(), 'Instant RD')]")
-                    if instant_buttons:
+                    instant_buttons = result_box.find_elements(By.XPATH, ".//button[text()='⚡ Instant RD']")
+                    if instant_buttons and len(instant_buttons) > 0:
                         logger.info(f"Found Instant RD button in box {i}")
-                        instant_buttons[0].click()
+                        driver.execute_script("arguments[0].click();", instant_buttons[0])
                         await asyncio.sleep(2)
                         
                         # Verify the button click worked
@@ -789,10 +794,10 @@ async def handle_movie_page(title: str, driver) -> bool:
             # Second pass: Try all DL with RD buttons
             for i, result_box in enumerate(result_boxes, 1):
                 try:
-                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
-                    if dl_buttons:
+                    dl_buttons = result_box.find_elements(By.XPATH, ".//button[text()='DL with RD']")
+                    if dl_buttons and len(dl_buttons) > 0:
                         logger.info(f"Found DL with RD button in box {i}")
-                        dl_buttons[0].click()
+                        driver.execute_script("arguments[0].click();", dl_buttons[0])
                         await asyncio.sleep(2)
                         
                         # Verify the button click worked
