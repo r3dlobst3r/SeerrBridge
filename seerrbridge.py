@@ -134,14 +134,14 @@ class CommentInfo(BaseModel):
 
 class WebhookPayload(BaseModel):
     notification_type: str
-    event: str
+    event: str = ""
     subject: str
     message: Optional[str] = None
     image: Optional[str] = None
-    media: MediaInfo
-    request: RequestInfo
-    issue: Optional[IssueInfo] = None  # Allow issue to be None
-    comment: Optional[CommentInfo] = None  # Allow comment to be None
+    media: Optional[MediaInfo] = None
+    request: Optional[RequestInfo] = None
+    issue: Optional[IssueInfo] = None
+    comment: Optional[CommentInfo] = None
     extra: List[Dict[str, Any]] = []
 
 def refresh_access_token():
@@ -1267,41 +1267,48 @@ async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks)
         raw_payload = await request.json()
         logger.info(f"Received raw webhook payload: {raw_payload}")
         
-        # If this is a test notification, handle it differently
-        if raw_payload.get("type") == "TEST_NOTIFICATION":
+        # If this is a test notification, handle it immediately
+        if raw_payload.get("notification_type") == "TEST_NOTIFICATION":
+            logger.info("Received test notification, responding with success")
             return {
                 "status": "success",
                 "message": "Test notification received successfully"
             }
             
         # For actual media requests, validate the payload
-        payload = WebhookPayload(**(await request.json()))
+        payload = WebhookPayload(**raw_payload)
         
-        media_type = payload.media.media_type.lower()
-        tmdb_id = payload.media.tmdbId
-        media_id = payload.media.id
-        
-        logger.info(f"Received webhook for {media_type} request: {tmdb_id}")
-        
-        # Process this single request immediately
-        background_tasks.add_task(process_single_request, media_type, tmdb_id, media_id)
-        
-        return {
-            "status": "success",
-            "message": f"Processing {media_type} request {tmdb_id}"
-        }
+        # Only process if we have media info
+        if payload.media and hasattr(payload.media, 'media_type') and hasattr(payload.media, 'tmdbId'):
+            media_type = payload.media.media_type.lower()
+            tmdb_id = payload.media.tmdbId
+            
+            logger.info(f"Received webhook for {media_type} request: {tmdb_id}")
+            
+            # Process this single request immediately
+            background_tasks.add_task(process_single_request, media_type, tmdb_id)
+            
+            return {
+                "status": "success",
+                "message": f"Processing {media_type} request {tmdb_id}"
+            }
+        else:
+            logger.info("Received non-media notification")
+            return {
+                "status": "success",
+                "message": "Notification received successfully"
+            }
         
     except ValidationError as e:
         logger.error(f"Payload validation error: {e}")
-        logger.error(f"Invalid payload received: {await request.json()}")
-        # Return a more detailed error response
+        logger.error(f"Invalid payload received: {raw_payload}")
         return JSONResponse(
             status_code=422,
             content={
                 "status": "error",
                 "message": "Invalid webhook payload",
                 "details": str(e),
-                "received_payload": await request.json()
+                "received_payload": raw_payload
             }
         )
     except Exception as e:
@@ -1315,14 +1322,12 @@ async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks)
             }
         )
 
-async def process_single_request(media_type: str, tmdb_id: int, media_id: int):
+async def process_single_request(media_type: str, tmdb_id: int):
     """Process a single media request"""
     try:
         # Check library first
         if await check_dmm_library(media_type, tmdb_id):
             logger.info(f"{media_type.capitalize()} already exists in library")
-            if mark_completed(media_id, tmdb_id):
-                logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
             return
         
         # If not in library, get details and process
