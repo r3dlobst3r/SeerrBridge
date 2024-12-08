@@ -111,8 +111,8 @@ class RequestInfo(BaseModel):
     requestedBy_email: str
     requestedBy_username: str
     requestedBy_avatar: str
-    requestedBy_settings_discordId: str
-    requestedBy_settings_telegramChatId: str
+    requestedBy_settings_discordId: Optional[str] = None
+    requestedBy_settings_telegramChatId: Optional[str] = None
 
 class IssueInfo(BaseModel):
     issue_id: str
