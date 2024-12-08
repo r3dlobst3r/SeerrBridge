@@ -607,6 +607,10 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         driver.get("https://debridmediamanager.com/library")
         await asyncio.sleep(2)
         
+        # Take screenshot of initial library page
+        driver.save_screenshot("screenshots/library_initial.png")
+        logger.info("Saved initial library state screenshot")
+        
         # Get title from TMDB
         if media_type == "movie":
             movie = Movie()
@@ -630,7 +634,16 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
         search_input.clear()
         search_input.send_keys(search_term)
         logger.info(f"Entered search term: {search_term}")
+        
+        # Take screenshot after entering search term
+        driver.save_screenshot("screenshots/after_search_entry.png")
+        logger.info("Saved screenshot after entering search term")
+        
         await asyncio.sleep(2)
+        
+        # Take screenshot after waiting for results
+        driver.save_screenshot("screenshots/after_search_wait.png")
+        logger.info("Saved screenshot after waiting for results")
         
         # Check if we find any results
         try:
@@ -641,14 +654,26 @@ async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
             
             if results:
                 logger.success(f"Found {len(results)} matching items in library")
+                # Take screenshot of found results
+                driver.save_screenshot("screenshots/search_results_found.png")
+                logger.info("Saved screenshot of found results")
                 return True
             
         except TimeoutException:
             logger.info("No results found in library search")
+            # Take screenshot of no results state
+            driver.save_screenshot("screenshots/no_results_found.png")
+            logger.info("Saved screenshot of no results state")
             return False
             
     except Exception as e:
         logger.error(f"Error checking library: {e}")
+        # Take screenshot of error state
+        try:
+            driver.save_screenshot("screenshots/error_state.png")
+            logger.info("Saved error state screenshot")
+        except:
+            pass
         return False
 
 def handle_tv_show_page(title: str, driver) -> bool:
