@@ -744,72 +744,105 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for the page to fully load
         await asyncio.sleep(2)
         
-        # First try to click the main "Instant RD" button at the top of the page
+        # Try to click the main Instant RD button using JavaScript
         try:
-            # Wait for and find all buttons
-            buttons = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.TAG_NAME, "button"))
-            )
+            # Direct JavaScript click on the first Instant RD button
+            driver.execute_script("""
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const instantRdButton = buttons.find(button => button.textContent.includes('⚡ Instant RD'));
+                if (instantRdButton) {
+                    instantRdButton.click();
+                    return true;
+                }
+                return false;
+            """)
             
-            # Look for the Instant RD button by its exact text
-            for button in buttons:
-                if "⚡ Instant RD" in button.text:
-                    logger.info("Found main Instant RD button")
-                    # Try direct click
-                    button.click()
-                    await asyncio.sleep(2)
-                    
-                    # Verify the download started
-                    success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
-                    if success_indicators:
-                        logger.info("Main Instant RD button click confirmed successful")
-                        return True
-                    break
+            await asyncio.sleep(2)
             
+            # Check if the click worked
+            success = driver.execute_script("""
+                return Array.from(document.querySelectorAll('button')).some(button => 
+                    button.textContent.includes('✓ Added')
+                );
+            """)
+            
+            if success:
+                logger.info("Main Instant RD button click successful")
+                return True
+                
         except Exception as e:
             logger.info(f"Could not use main Instant RD button: {str(e)}")
         
         # If main button didn't work, try the individual result boxes
         try:
-            # Click "Single" filter if it exists
-            single_buttons = driver.find_elements(By.XPATH, "//button[text()='Single']")
-            if single_buttons:
-                single_buttons[0].click()
-                await asyncio.sleep(1)
+            # Click Single filter using JavaScript
+            driver.execute_script("""
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const singleButton = buttons.find(button => button.textContent === 'Single');
+                if (singleButton) {
+                    singleButton.click();
+                }
+            """)
             
-            # Find all result boxes
-            result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-2')]")
-            logger.info(f"Found {len(result_boxes)} result boxes")
+            await asyncio.sleep(1)
             
-            # First try Instant RD buttons
-            for box in result_boxes:
-                try:
-                    instant_buttons = box.find_elements(By.XPATH, ".//button[contains(text(), '⚡ Instant RD')]")
-                    if instant_buttons:
-                        instant_buttons[0].click()
-                        await asyncio.sleep(2)
-                        
-                        success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
-                        if success_indicators:
-                            logger.info("Instant RD button click successful")
-                            return True
-                except Exception as e:
-                    continue
+            # Get count of result boxes
+            result_count = driver.execute_script("""
+                return document.querySelectorAll('div[class*="border-2"]').length;
+            """)
+            logger.info(f"Found {result_count} result boxes")
             
-            # Then try DL with RD buttons
-            for box in result_boxes:
-                try:
-                    dl_buttons = box.find_elements(By.XPATH, ".//button[text()='DL with RD']")
-                    if dl_buttons:
-                        dl_buttons[0].click()
-                        await asyncio.sleep(2)
-                        
-                        success_indicators = driver.find_elements(By.XPATH, "//button[text()='✓ Added']")
-                        if success_indicators:
-                            logger.info("DL with RD button click successful")
-                            return True
-                except Exception as e:
-                    continue
+            # Try clicking Instant RD buttons in each box
+            success = driver.execute_script("""
+                const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
+                for (const box of boxes) {
+                    const instantButton = Array.from(box.querySelectorAll('button')).find(
+                        button => button.textContent.includes('⚡ Instant RD')
+                    );
+                    if (instantButton) {
+                        instantButton.click();
+                        return true;
+                    }
+                }
+                return false;
+            """)
+            
+            if success:
+                await asyncio.sleep(2)
+                added_check = driver.execute_script("""
+                    return Array.from(document.querySelectorAll('button')).some(button => 
+                        button.textContent.includes('✓ Added')
+                    );
+                """)
+                if added_check:
+                    logger.info("Instant RD button click successful")
+                    return True
+            
+            # If Instant RD didn't work, try DL with RD buttons
+            success = driver.execute_script("""
+                const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
+                for (const box of boxes) {
+                    const dlButton = Array.from(box.querySelectorAll('button')).find(
+                        button => button.textContent.includes('DL with RD')
+                    );
+                    if (dlButton) {
+                        dlButton.click();
+                        return true;
+                    }
+                }
+                return false;
+            """)
+            
+            if success:
+                await asyncio.sleep(2)
+                added_check = driver.execute_script("""
+                    return Array.from(document.querySelectorAll('button')).some(button => 
+                        button.textContent.includes('✓ Added')
+                    );
+                """)
+                if added_check:
+                    logger.info("DL with RD button click successful")
+                    return True
                     
         except Exception as e:
             logger.error(f"Error processing result boxes: {str(e)}")
