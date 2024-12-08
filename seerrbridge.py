@@ -744,15 +744,13 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for the page to fully load
         await asyncio.sleep(2)
         
-        # Try to click the main Instant RD button using JavaScript
+        # First try the main Instant RD button
         try:
-            # Direct JavaScript click on the first Instant RD button
-            driver.execute_script("""
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const instantRdButton = buttons.find(button => {
-                    return button.classList.contains('bg-green-900/30') && 
-                           button.innerHTML.includes('Instant RD');
-                });
+            clicked = driver.execute_script("""
+                // Try to find and click the first Instant RD button
+                const instantRdButton = Array.from(document.querySelectorAll('button'))
+                    .find(button => button.classList.contains('bg-green-900/30') && 
+                                  button.innerHTML.includes('Instant RD'));
                 if (instantRdButton) {
                     instantRdButton.click();
                     return true;
@@ -760,99 +758,65 @@ async def handle_movie_page(title: str, driver) -> bool:
                 return false;
             """)
             
-            await asyncio.sleep(2)
+            if clicked:
+                logger.info("Clicked first Instant RD button, waiting for download to start...")
+                # Wait up to 10 seconds for the download to start
+                for _ in range(10):
+                    success = driver.execute_script("""
+                        const successMsg = document.querySelector('div[role="status"]');
+                        if (successMsg && successMsg.textContent.includes('Successfully')) {
+                            return true;
+                        }
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        return buttons.some(button => 
+                            (button.classList.contains('bg-red-900/30') && button.textContent.includes('Added')) ||
+                            button.textContent.includes('✓')
+                        );
+                    """)
+                    
+                    if success:
+                        logger.info("Instant RD button click confirmed successful")
+                        return True
+                    
+                    await asyncio.sleep(1)
             
-            # Check if the click worked
-            success = driver.execute_script("""
-                return Array.from(document.querySelectorAll('button')).some(button => 
-                    button.classList.contains('bg-red-900/30')
-                );
-            """)
-            
-            if success:
-                logger.info("Main Instant RD button click successful")
-                return True
-                
-        except Exception as e:
-            logger.info(f"Could not use main Instant RD button: {str(e)}")
-        
-        # If main button didn't work, try the individual result boxes
-        try:
-            # Click Single filter using JavaScript
-            driver.execute_script("""
-                const buttons = Array.from(document.querySelectorAll('button'));
-                const singleButton = buttons.find(button => 
-                    button.textContent.trim() === 'Single'
-                );
-                if (singleButton) {
-                    singleButton.click();
-                }
-            """)
-            
-            await asyncio.sleep(1)
-            
-            # Get count of result boxes
-            result_count = driver.execute_script("""
-                return document.querySelectorAll('div[class*="border-2"]').length;
-            """)
-            logger.info(f"Found {result_count} result boxes")
-            
-            # Try clicking Instant RD buttons in each box
-            success = driver.execute_script("""
-                const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
-                for (const box of boxes) {
-                    const instantButton = Array.from(box.querySelectorAll('button')).find(
-                        button => button.classList.contains('bg-green-900/30') && 
-                                 button.innerHTML.includes('Instant RD')
-                    );
-                    if (instantButton) {
-                        instantButton.click();
-                        return true;
-                    }
+            # If Instant RD didn't work, try the first DL with RD button
+            clicked = driver.execute_script("""
+                // Try to find and click the first DL with RD button
+                const dlButton = Array.from(document.querySelectorAll('button'))
+                    .find(button => button.classList.contains('bg-blue-900/30') && 
+                                  button.textContent.includes('DL with RD'));
+                if (dlButton) {
+                    dlButton.click();
+                    return true;
                 }
                 return false;
             """)
             
-            if success:
-                await asyncio.sleep(2)
-                added_check = driver.execute_script("""
-                    return Array.from(document.querySelectorAll('button')).some(button => 
-                        button.classList.contains('bg-red-900/30')
-                    );
-                """)
-                if added_check:
-                    logger.info("Instant RD button click successful")
-                    return True
-            
-            # If Instant RD didn't work, try DL with RD buttons
-            success = driver.execute_script("""
-                const boxes = Array.from(document.querySelectorAll('div[class*="border-2"]'));
-                for (const box of boxes) {
-                    const dlButton = Array.from(box.querySelectorAll('button')).find(
-                        button => button.classList.contains('bg-blue-900/30') && 
-                                 button.textContent.includes('DL with RD')
-                    );
-                    if (dlButton) {
-                        dlButton.click();
-                        return true;
-                    }
-                }
-                return false;
-            """)
-            
-            if success:
-                await asyncio.sleep(2)
-                added_check = driver.execute_script("""
-                    return Array.from(document.querySelectorAll('button')).some(button => 
-                        button.classList.contains('bg-red-900/30')
-                    );
-                """)
-                if added_check:
-                    logger.info("DL with RD button click successful")
-                    return True
+            if clicked:
+                logger.info("Clicked first DL with RD button, waiting for download to start...")
+                # Wait up to 10 seconds for the download to start
+                for _ in range(10):
+                    success = driver.execute_script("""
+                        const successMsg = document.querySelector('div[role="status"]');
+                        if (successMsg && successMsg.textContent.includes('Successfully')) {
+                            return true;
+                        }
+                        const buttons = Array.from(document.querySelectorAll('button'));
+                        return buttons.some(button => 
+                            (button.classList.contains('bg-red-900/30') && button.textContent.includes('Added')) ||
+                            button.textContent.includes('✓')
+                        );
+                    """)
+                    
+                    if success:
+                        logger.info("DL with RD button click confirmed successful")
+                        return True
+                    
+                    await asyncio.sleep(1)
                     
         except Exception as e:
-            logger.error(f"Error processing result boxes: {str(e)}")
+            logger.error(f"Error processing buttons: {str(e)}")
             return False
         
         logger.warning("No successful button clicks")
