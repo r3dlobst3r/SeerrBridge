@@ -730,67 +730,44 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for page to load completely
         time.sleep(2)
         
-        # Try multiple button selectors
-        selectors = [
-            "//button[contains(text(), 'Instant RD')]",  # By text
-            "//button[@class='border-2 border-green-500 bg-green-900/30 text-green-100 hover:bg-green-800/50 haptic-sm inline rounded px-1 text-xs transition-colors']",  # Exact class
-            "//div[@role='main']//button[contains(@class, 'border-green-500')]",  # By role and class
-            "//button[.//span[text()='Instant RD']]",  # By span text
-            "//button[contains(@class, 'border-green-500') and contains(@class, 'bg-green-900')]"  # By partial classes
-        ]
+        # Find the button by looking for the lightning bolt emoji and Instant RD text
+        button_xpath = "//button[contains(@class, 'border-green-500') and .//span[contains(text(), '⚡') and contains(text(), 'Instant RD')]]"
         
-        button = None
-        for selector in selectors:
-            try:
-                logger.info(f"Trying selector: {selector}")
-                button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, selector))
-                )
-                if button:
-                    logger.info("Found button!")
-                    break
-            except:
-                continue
-                
-        if not button:
-            logger.error("Could not find button with any selector")
-            return False
-            
-        # Try every possible click method
-        click_methods = [
-            lambda: button.click(),
-            lambda: driver.execute_script("arguments[0].click();", button),
-            lambda: ActionChains(driver).move_to_element(button).click().perform(),
-            lambda: driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {'bubbles': true, 'cancelable': true}));", button),
-            lambda: button.send_keys(Keys.RETURN),
-            lambda: driver.execute_script("arguments[0].focus(); arguments[0].click();", button)
-        ]
+        logger.info("Waiting for button...")
+        button = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, button_xpath))
+        )
         
-        for i, click_method in enumerate(click_methods, 1):
-            try:
-                logger.info(f"Trying click method {i}")
-                click_method()
-                logger.info(f"Click method {i} succeeded")
-                
-                # Check if click worked by looking for success indicator
-                try:
-                    success = WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH,
-                            "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
-                    )
-                    if success:
-                        logger.info("Click confirmed - found success indicator")
-                        return True
-                except:
-                    logger.info(f"Click method {i} didn't produce success indicator, trying next method")
-                    continue
-                    
-            except Exception as e:
-                logger.warning(f"Click method {i} failed: {str(e)}")
-                continue
-                
-        logger.error("All click methods failed")
-        return False
+        # Log button properties
+        logger.info(f"Button text: {button.text}")
+        logger.info(f"Button classes: {button.get_attribute('class')}")
+        logger.info(f"Button is displayed: {button.is_displayed()}")
+        logger.info(f"Button is enabled: {button.is_enabled()}")
+        
+        # Scroll to button and wait
+        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+        time.sleep(1)
+        
+        # Try to click the button's span element instead
+        try:
+            span = button.find_element(By.TAG_NAME, "span")
+            logger.info("Found span element inside button")
+            span.click()
+            logger.info("Clicked span element")
+        except Exception as e:
+            logger.warning(f"Failed to click span: {e}")
+            # Fallback to button click
+            button.click()
+            logger.info("Clicked button directly")
+        
+        # Look for success indicator in first result
+        success = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH,
+                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
+        )
+        
+        logger.info("Found success indicator")
+        return True
 
     except Exception as e:
         logger.error(f"Error handling movie page: {str(e)}")
