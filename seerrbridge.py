@@ -36,6 +36,7 @@ from fuzzywuzzy import fuzz
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from tmdbv3api import TMDb, Movie, TV, Season, Episode
+from fastapi.responses import JSONResponse
 
 
 # Configure loguru
@@ -1262,6 +1263,18 @@ async def get_user_input():
 @app.post("/jellyseer-webhook/")
 async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
+        # Log the raw payload first
+        raw_payload = await request.json()
+        logger.info(f"Received raw webhook payload: {raw_payload}")
+        
+        # If this is a test notification, handle it differently
+        if raw_payload.get("type") == "TEST_NOTIFICATION":
+            return {
+                "status": "success",
+                "message": "Test notification received successfully"
+            }
+            
+        # For actual media requests, validate the payload
         payload = WebhookPayload(**(await request.json()))
         
         media_type = payload.media.media_type.lower()
@@ -1280,7 +1293,27 @@ async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks)
         
     except ValidationError as e:
         logger.error(f"Payload validation error: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
+        logger.error(f"Invalid payload received: {await request.json()}")
+        # Return a more detailed error response
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "error",
+                "message": "Invalid webhook payload",
+                "details": str(e),
+                "received_payload": await request.json()
+            }
+        )
+    except Exception as e:
+        logger.error(f"Webhook error: {str(e)}")
+        logger.exception(e)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "message": f"Internal server error: {str(e)}"
+            }
+        )
 
 async def process_single_request(media_type: str, tmdb_id: int, media_id: int):
     """Process a single media request"""
