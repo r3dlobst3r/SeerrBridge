@@ -546,17 +546,13 @@ async def process_media_requests():
     for request in requests:
         tmdb_id = request['media']['tmdbId']
         media_id = request['media']['id']
-        media_type = request['media']['mediaType']  # 'movie' or 'tv'
-        
-        logger.info(f"Processing {media_type} request with TMDB ID {tmdb_id} and media ID {media_id}")
+        media_type = request['media']['mediaType']
         
         try:
             # Check library first
             if await check_dmm_library(media_type, tmdb_id):
                 logger.info(f"{media_type.capitalize()} already exists in library")
-                if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
-                continue
+                return
             
             # If not in library, get details and process
             if media_type == 'movie':
@@ -577,113 +573,90 @@ async def process_media_requests():
                 continue
                 
             logger.info(f"Processing {media_type}: {title} (IMDB: {imdb_id})")
-            logger.info(f"Navigating directly to: {url}")
             
-            # Navigate directly to the media page
+            # Navigate to the media page
             driver.get(url)
-            await asyncio.sleep(2)  # Wait for page to load
+            await asyncio.sleep(2)
             
-            # For TV shows, we need to handle the season page differently
+            # Process based on media type
             if media_type == 'tv':
                 confirmation_flag = await handle_tv_show_page(title, driver)
             else:
                 confirmation_flag = await handle_movie_page(title, driver)
             
+            # Handle the completion marking
             if confirmation_flag:
-                # Wait a moment to ensure the download actually started
-                await asyncio.sleep(2)
-                # Verify the download started by checking for success indicators
-                success_indicators = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
-                if success_indicators:
-                    logger.info("Download confirmed - found success indicators")
-                    if mark_completed(media_id, tmdb_id):
-                        logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
-                    else:
-                        logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
+                logger.info(f"Successfully processed {media_type}. Marking as complete...")
+                if mark_completed(media_id, tmdb_id):
+                    logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
                 else:
-                    logger.warning(f"Download not confirmed for {media_type} {media_id} - not marking as complete")
+                    logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
             else:
-                logger.info(f"{media_type} {media_id} was not properly confirmed. Skipping marking as completed.")
+                logger.warning(f"Failed to process {media_type}. Not marking as complete.")
                 
         except Exception as ex:
             logger.critical(f"Error processing {media_type} request {tmdb_id}: {ex}")
-            logger.exception(ex)  # This will print the full traceback
+            logger.exception(ex)
 
     logger.info("Finished processing all current requests. Waiting for new requests.")
 
 async def check_dmm_library(media_type: str, tmdb_id: int) -> bool:
     """Check if media exists in DMM library"""
     try:
-        # Verify driver is initialized
-        if not driver:
-            logger.error("WebDriver not initialized")
-            return False
-
-        # Navigate to library page with explicit wait and error handling
-        try:
-            driver.get("https://debridmediamanager.com/library")
-            await asyncio.sleep(2)  # Wait for initial page load
-        except Exception as e:
-            logger.error(f"Failed to navigate to library page: {e}")
-            return False
+        # Navigate to library page
+        driver.get("https://debridmediamanager.com/library")
+        await asyncio.sleep(2)
         
-        # Get title from TMDB with error handling
-        try:
-            if media_type == "movie":
-                movie = Movie()
-                details = movie.details(tmdb_id)
-                search_term = details.title
-            else:
-                tv = TV()
-                details = tv.details(tmdb_id)
-                search_term = details.name
-                
-            logger.info(f"Checking library for: {search_term}")
-        except Exception as e:
-            logger.error(f"Failed to get title from TMDB: {e}")
-            return False
+        # Get title from TMDB
+        if media_type == "movie":
+            movie = Movie()
+            details = movie.details(tmdb_id)
+            # Use just the main title without subtitle
+            search_term = details.title.split(':')[0].strip()
+            logger.info(f"Searching library for simplified title: {search_term}")
+        else:
+            tv = TV()
+            details = tv.details(tmdb_id)
+            search_term = details.name
         
-        # Wait for and find the search input with explicit timeout
-        try:
-            search_input = WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-            )
-            
-            # Clear existing search and enter new search term
-            search_input.clear()
-            search_input.send_keys(search_term)
-            await asyncio.sleep(2)  # Wait for search results
-            
-        except TimeoutException:
-            logger.error("Search input not found within timeout period")
-            return False
-        except Exception as e:
-            logger.error(f"Error interacting with search input: {e}")
-            return False
+        # Wait for and find the search input
+        search_input = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+        )
         
-        # Look for items in the library with explicit wait
+        # Clear existing search and enter simplified search term
+        search_input.clear()
+        search_input.send_keys(search_term)
+        await asyncio.sleep(2)
+        
+        # Look for items in the library
         try:
             library_items = WebDriverWait(driver, 10).until(
                 EC.presence_of_all_elements_located((By.XPATH, "//div[contains(@class, 'library-item')]"))
             )
             
-            if library_items:
-                logger.success(f"Found {search_term} in library!")
-                return True
+            for item in library_items:
+                try:
+                    title_element = item.find_element(By.XPATH, ".//div[contains(@class, 'title')]")
+                    item_title = title_element.text.strip()
+                    logger.info(f"Found library item: {item_title}")
+                    
+                    # Check if the simplified search term is in the item title
+                    if search_term.lower() in item_title.lower():
+                        logger.success(f"Found matching item in library: {item_title}")
+                        return True
+                except:
+                    continue
+            
+            logger.info(f"No matching items found for: {search_term}")
+            return False
                 
         except TimeoutException:
             logger.info(f"No results found in library for: {search_term}")
             return False
-        except Exception as e:
-            logger.error(f"Error checking library items: {e}")
-            return False
             
-        return False
-        
     except Exception as e:
         logger.error(f"Error checking library: {e}")
-        if hasattr(e, '__traceback__'):
-            logger.exception(e)  # Log full traceback if available
         return False
 
 def handle_tv_show_page(title: str, driver) -> bool:
@@ -730,11 +703,7 @@ async def handle_movie_page(title: str, driver) -> bool:
         # Wait for page to load completely
         time.sleep(2)
         
-        # Take initial screenshot
-        driver.save_screenshot("/config/screenshots/before_click.png")
-        logger.info("Saved initial state screenshot to /config/screenshots/before_click.png")
-        
-        # Find the button by looking for the lightning bolt emoji and Instant RD text
+        # Find and click the top Instant RD button
         button_xpath = "//button[contains(@class, 'border-green-500') and .//span[contains(text(), '⚡') and contains(text(), 'Instant RD')]]"
         
         logger.info("Waiting for button...")
@@ -742,43 +711,24 @@ async def handle_movie_page(title: str, driver) -> bool:
             EC.presence_of_element_located((By.XPATH, button_xpath))
         )
         
-        # Highlight the button we found
-        driver.execute_script("""
-            var element = arguments[0];
-            element.style.border = "5px solid red";
-        """, button)
-        driver.save_screenshot("/config/screenshots/button_found.png")
-        logger.info("Saved screenshot with highlighted button to /config/screenshots/button_found.png")
-        
-        # Log button properties
-        logger.info(f"Button text: {button.text}")
-        logger.info(f"Button classes: {button.get_attribute('class')}")
-        logger.info(f"Button is displayed: {button.is_displayed()}")
-        logger.info(f"Button is enabled: {button.is_enabled()}")
-        
-        # Try to click and take screenshot after
+        # Click the button
         button.click()
-        time.sleep(1)
-        driver.save_screenshot("/config/screenshots/after_click.png")
-        logger.info("Saved post-click screenshot to /config/screenshots/after_click.png")
+        logger.info("Clicked Instant RD button")
         
-        # Look for success indicator in first result
-        success = WebDriverWait(driver, 10).until(
+        # Wait for the red RD (100%) button in the first result
+        success = WebDriverWait(driver, 30).until(
             EC.presence_of_element_located((By.XPATH,
-                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500')]"))
+                "//div[contains(@class, 'Single')][1]//button[contains(@class, 'border-red-500') and contains(text(), 'RD (100%)')]"))
         )
         
-        logger.info("Found success indicator")
-        return True
+        if success:
+            logger.success("Download confirmed - found RD (100%) indicator")
+            return True
+            
+        return False
 
     except Exception as e:
         logger.error(f"Error handling movie page: {str(e)}")
-        # Take error state screenshot
-        try:
-            driver.save_screenshot("/config/screenshots/error_state.png")
-            logger.info("Saved error state screenshot to /config/screenshots/error_state.png")
-        except:
-            pass
         return False
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
