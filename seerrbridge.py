@@ -679,6 +679,41 @@ def handle_tv_show_page(title: str, driver) -> bool:
         logger.error(f"Error handling TV show page: {e}")
         return False
 
+def handle_movie_page(title: str, driver) -> bool:
+    """Handle the movie page interactions"""
+    try:
+        logger.info(f"Handling movie page for: {title}")
+        
+        # Wait for the status message about RD availability
+        try:
+            WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+            )
+        except TimeoutException:
+            logger.warning("Timeout waiting for status message")
+        
+        # Check for red buttons (100% RD) first
+        red_buttons = driver.find_elements(By.XPATH, "//button[contains(@class, 'bg-red-900/30')]")
+        if red_buttons:
+            logger.info(f"Found {len(red_buttons)} red button(s)")
+            return True
+            
+        # Check for Instant RD buttons
+        instant_rd_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Instant RD')]")
+        for button in instant_rd_buttons:
+            try:
+                button.click()
+                logger.info("Clicked Instant RD button")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to click Instant RD button: {e}")
+                
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error handling movie page: {e}")
+        return False
+
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
     """Mark item as completed in overseerr"""
     url = f"{OVERSEERR_API_BASE_URL}/media/{media_id}/available"
@@ -999,7 +1034,6 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-                )
 
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
@@ -1365,3 +1399,7 @@ async def on_close():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8777)
+
+@app.get("/ping")
+async def ping():
+    return {"status": "ok", "message": "SeerrBridge is running!"}
