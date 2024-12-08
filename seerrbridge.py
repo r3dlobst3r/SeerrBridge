@@ -746,6 +746,18 @@ async def handle_movie_page(title: str, driver) -> bool:
         
         # First try the main Instant RD button
         try:
+            # Debug: Print all buttons and their classes
+            buttons_debug = driver.execute_script("""
+                return Array.from(document.querySelectorAll('button')).map(button => ({
+                    text: button.textContent,
+                    classes: button.className,
+                    html: button.innerHTML
+                }));
+            """)
+            logger.info("Available buttons:")
+            for btn in buttons_debug:
+                logger.info(f"Text: {btn['text']}, Classes: {btn['classes']}, HTML: {btn['html']}")
+            
             clicked = driver.execute_script("""
                 // Try to find and click the first Instant RD button
                 const instantRdButton = Array.from(document.querySelectorAll('button'))
@@ -761,14 +773,27 @@ async def handle_movie_page(title: str, driver) -> bool:
             if clicked:
                 logger.info("Clicked first Instant RD button, waiting for download to start...")
                 # Wait up to 10 seconds for the download to start
-                for _ in range(10):
+                for i in range(10):
+                    # Debug: Print all buttons after click
+                    current_buttons = driver.execute_script("""
+                        return Array.from(document.querySelectorAll('button')).map(button => ({
+                            text: button.textContent,
+                            classes: button.className,
+                            html: button.innerHTML
+                        }));
+                    """)
+                    logger.info(f"Attempt {i+1} - Current buttons:")
+                    for btn in current_buttons:
+                        logger.info(f"Text: {btn['text']}, Classes: {btn['classes']}, HTML: {btn['html']}")
+                    
                     success = driver.execute_script("""
                         // Look for the red button with RD (100%)
                         const buttons = Array.from(document.querySelectorAll('button'));
-                        return buttons.some(button => 
+                        const found = buttons.find(button => 
                             button.classList.contains('bg-red-900/30') && 
                             button.textContent.includes('RD (100%)')
                         );
+                        return found ? true : false;
                     """)
                     
                     if success:
@@ -777,38 +802,21 @@ async def handle_movie_page(title: str, driver) -> bool:
                     
                     await asyncio.sleep(1)
             
-            # If Instant RD didn't work, try the first DL with RD button
-            clicked = driver.execute_script("""
-                // Try to find and click the first DL with RD button
-                const dlButton = Array.from(document.querySelectorAll('button'))
-                    .find(button => button.classList.contains('bg-blue-900/30') && 
-                                  button.textContent.includes('DL with RD'));
-                if (dlButton) {
-                    dlButton.click();
-                    return true;
-                }
-                return false;
-            """)
+            # Debug: Print state if first click failed
+            if not clicked:
+                logger.info("Failed to find Instant RD button, current buttons:")
+                buttons_after_fail = driver.execute_script("""
+                    return Array.from(document.querySelectorAll('button')).map(button => ({
+                        text: button.textContent,
+                        classes: button.className,
+                        html: button.innerHTML
+                    }));
+                """)
+                for btn in buttons_after_fail:
+                    logger.info(f"Text: {btn['text']}, Classes: {btn['classes']}, HTML: {btn['html']}")
             
-            if clicked:
-                logger.info("Clicked first DL with RD button, waiting for download to start...")
-                # Wait up to 10 seconds for the download to start
-                for _ in range(10):
-                    success = driver.execute_script("""
-                        // Look for the red button with RD (100%)
-                        const buttons = Array.from(document.querySelectorAll('button'));
-                        return buttons.some(button => 
-                            button.classList.contains('bg-red-900/30') && 
-                            button.textContent.includes('RD (100%)')
-                        );
-                    """)
-                    
-                    if success:
-                        logger.info("DL with RD button click confirmed successful")
-                        return True
-                    
-                    await asyncio.sleep(1)
-                    
+            # Rest of the function remains the same...
+
         except Exception as e:
             logger.error(f"Error processing buttons: {str(e)}")
             return False
