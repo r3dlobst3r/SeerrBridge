@@ -528,7 +528,7 @@ def get_overseerr_media_requests() -> list[dict]:
     return processing_requests
 
 ### Process the fetched messages (newest to oldest)
-async def process_movie_requests():
+async def process_media_requests():
     requests = get_overseerr_media_requests()
     if not requests:
         logger.info("No requests to process")
@@ -537,22 +537,47 @@ async def process_movie_requests():
     for request in requests:
         tmdb_id = request['media']['tmdbId']
         media_id = request['media']['id']
-        logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id}")
+        media_type = request['media']['mediaType']  # 'movie' or 'tv'
         
-        movie_title = f"{movie_details['title']} ({movie_details['year']})"
-        logger.info(f"Processing movie request: {movie_title}")
+        logger.info(f"Processing {media_type} request with TMDB ID {tmdb_id} and media ID {media_id}")
         
         try:
-            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request and get the confirmation flag
+            # Get details based on media type
+            if media_type == 'movie':
+                movie = Movie()
+                details = movie.details(tmdb_id)
+                title = f"{details.title} ({details.release_date[:4]})"
+                imdb_id = details.external_ids['imdb_id']
+            else:  # TV Show
+                tv = TV()
+                details = tv.details(tmdb_id)
+                title = f"{details.name} ({details.first_air_date[:4]})"
+                imdb_id = details.external_ids['imdb_id']
+            
+            logger.info(f"Processing {media_type}: {title}")
+            
+            # Navigate directly to the correct URL based on media type
+            if media_type == 'movie':
+                url = f"https://debridmediamanager.com/movie/{imdb_id}"
+            else:
+                url = f"https://debridmediamanager.com/show/{imdb_id}/1"  # Start with season 1
+                
+            driver.get(url)
+            await asyncio.sleep(2)  # Wait for page to load
+            
+            confirmation_flag = await asyncio.to_thread(search_on_debrid, title, driver)
+            
             if confirmation_flag:
                 if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked media {media_id} as completed in overseerr")
+                    logger.success(f"Marked {media_type} {media_id} as completed in overseerr")
                 else:
-                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                    logger.error(f"Failed to mark {media_type} {media_id} as completed in overseerr")
             else:
-                logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                logger.info(f"{media_type} {media_id} was not properly confirmed. Skipping marking as completed.")
+                
         except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
+            logger.critical(f"Error processing {media_type} request {tmdb_id}: {ex}")
+            logger.exception(ex)  # This will print the full traceback
 
     logger.info("Finished processing all current requests. Waiting for new requests.")
 
@@ -1163,7 +1188,7 @@ async def startup_event():
     if user_input == 'y':
         try:
             # Run the initial check immediately
-            await process_movie_requests()
+            await process_media_requests()
             logger.info("Completed initial check of movie requests.")
 
             # Schedule the rechecking of movie requests every 2 hours
@@ -1181,7 +1206,7 @@ async def startup_event():
 
 def schedule_recheck_movie_requests():
     # Correctly schedule the job with the REFRESH_INTERVAL_MINUTES configured interval.
-    scheduler.add_job(process_movie_requests, 'interval', minutes=REFRESH_INTERVAL_MINUTES)
+    scheduler.add_job(process_media_requests, 'interval', minutes=REFRESH_INTERVAL_MINUTES)
     logger.info(f"Scheduled rechecking movie requests every {REFRESH_INTERVAL_MINUTES} minute(s).")
 
 
