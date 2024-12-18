@@ -575,15 +575,12 @@ last_reset_time = time.time()
 def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
     """Fetch movie details directly from TMDB API"""
     url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"
-    headers = {
-        "accept": "application/json"
-    }
     params = {
-        "api_key": TMDB_API_KEY
+        "api_key": os.getenv('TMDB_API_KEY')
     }
     
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
             return {
@@ -597,38 +594,6 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
         logger.error(f"Error fetching movie details from TMDB API: {e}")
         return None
 
-async def get_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
-    """Fetch movie details from TMDB API."""
-    try:
-        tmdb_api_key = os.getenv('TMDB_API_KEY')
-        if not tmdb_api_key:
-            logger.error("TMDB_API_KEY not found in environment variables")
-            return None
-
-        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"
-        headers = {
-            "Authorization": f"Bearer {tmdb_api_key}",
-            "accept": "application/json"
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return {
-                        'title': data.get('title'),
-                        'release_date': data.get('release_date'),
-                        'id': data.get('id'),
-                        'original_title': data.get('original_title')
-                    }
-                else:
-                    logger.error(f"Failed to fetch movie details. Status: {response.status}")
-                    return None
-
-    except Exception as e:
-        logger.error(f"Error fetching movie details: {e}")
-        return None
-
 async def process_movie_request(payload: WebhookPayload):
     try:
         # Extract TMDB ID and media_id (if available)
@@ -637,31 +602,27 @@ async def process_movie_request(payload: WebhookPayload):
         
         logger.info(f"Processing request for TMDB ID {tmdb_id} without media_id")
         
-        # Get movie details from TMDB
-        movie_details = await get_movie_details(tmdb_id)
+        # Get movie details from TMDB using the synchronous function
+        movie_details = get_movie_details_from_tmdb(tmdb_id)
         if not movie_details:
             logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
             return {"status": "error", "message": "Failed to fetch movie details"}
 
-        # Add to processing queue
-        movie_title = movie_details.get('title')
-        if movie_title:
-            logger.info(f"Adding movie to queue: {movie_title} (TMDB ID: {tmdb_id})")
-            await add_request_to_queue(movie_title)
-            
-            # Trigger immediate processing
-            try:
-                browser = await get_browser()
-                if browser:
-                    confirmation = await process_movie_in_dmm(browser, movie_title)
-                    if confirmation:
-                        logger.success(f"Successfully processed movie: {movie_title}")
-                    else:
-                        logger.warning(f"Failed to process movie: {movie_title}")
+        # Format movie title with year
+        movie_title = f"{movie_details['title']} ({movie_details['year']})"
+        logger.info(f"Processing movie request: {movie_title}")
+        
+        try:
+            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+            if confirmation_flag:
+                if mark_completed(media_id, tmdb_id):
+                    logger.success(f"Marked media {media_id} as completed in overseerr")
                 else:
-                    logger.error("Browser not available for processing")
-            except Exception as e:
-                logger.error(f"Error during movie processing: {e}")
+                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+            else:
+                logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+        except Exception as ex:
+            logger.critical(f"Error processing movie request {movie_title}: {ex}")
                 
         return {
             "status": "success", 
