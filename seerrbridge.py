@@ -103,6 +103,7 @@ class MediaInfo(BaseModel):
     # 2. Second: field definitions
     media_type: str
     tmdbId: int
+    media_id: Optional[int] = None
     id: Optional[int] = None
     status: Optional[Union[int, str]] = None
     status4k: Optional[Union[int, str]] = None
