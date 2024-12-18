@@ -9,7 +9,7 @@
 # -----------------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel, Field, ValidationError, field_validator, ConfigDict
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import asyncio
 import json
 import time
@@ -90,6 +90,7 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
+    # 1. First: model configuration
     model_config = {
         "populate_by_name": True,
         "extra": "allow",
@@ -99,19 +100,35 @@ class MediaInfo(BaseModel):
         "from_attributes": True
     }
 
+    # 2. Second: field definitions
     media_type: str
     tmdbId: int
     id: Optional[int] = None
-    status: Optional[int] = None
-    status4k: Optional[int] = None
+    status: Optional[Union[int, str]] = None
+    status4k: Optional[Union[int, str]] = None
     createdAt: Optional[str] = None
     updatedAt: Optional[str] = None
 
+    # 3. Third: validators
     @field_validator('*')
     @classmethod
     def empty_str_to_none(cls, v):
         if isinstance(v, str) and not v.strip():
             return None
+        return v
+
+    @field_validator('status', 'status4k')
+    @classmethod
+    def validate_status(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, int):
+            return v
+        if isinstance(v, str):
+            try:
+                return int(v)
+            except ValueError:
+                return v
         return v
 
 class SeasonInfo(BaseModel):
