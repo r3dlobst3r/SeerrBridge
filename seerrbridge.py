@@ -92,12 +92,11 @@ processing_task = None  # To track the current processing task
 class MediaInfo(BaseModel):
     media_type: str
     tmdbId: int
-    tvdbId: Optional[int] = Field(default=None, alias='tvdbId')
-    status: str
-    status4k: str
-    seasonCount: Optional[int] = None  # Add for TV shows
-    episodeCount: Optional[int] = None  # Add for TV shows
-    seasons: Optional[List[int]] = None  # Add for tracking seasons
+    id: Optional[int] = None  # Make id optional with a default of None
+    status: Optional[int] = None
+    status4k: Optional[int] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
 
     @field_validator('tvdbId', mode='before')
     @classmethod
@@ -578,9 +577,14 @@ async def process_movie_request(payload: WebhookPayload):
             return {"status": "skipped", "reason": "not a movie"}
 
         tmdb_id = payload.media.tmdbId
-        media_id = payload.media.id
+        # Use getattr to safely get the media_id with a default value
+        media_id = getattr(payload.media, 'id', None)
         
-        logger.info(f"Processing webhook request with TMDB ID {tmdb_id}")
+        if not media_id:
+            logger.warning(f"No media_id found in payload for TMDB ID {tmdb_id}")
+            return {"status": "error", "reason": "missing media_id"}
+        
+        logger.info(f"Processing webhook request with TMDB ID {tmdb_id} and media ID {media_id}")
         
         # Add retry logic for getting movie details
         retries = 3
