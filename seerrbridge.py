@@ -372,7 +372,7 @@ async def initialize_browser():
         login(driver)
         logger.success("Refreshed the page to apply local storage values.")
         # After refreshing, call the login function to click the login button
-        # After successful login, click on "��️ Settings" to open the settings popup
+        # After successful login, click on "⚙️ Settings" to open the settings popup
         try:
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
