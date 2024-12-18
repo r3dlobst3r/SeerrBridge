@@ -1374,7 +1374,6 @@ def get_tv_details_from_tmdb(series_id: str) -> Optional[dict]:
 
 async def process_tv_request(payload: WebhookPayload):
     try:
-        # Extract series_id (TMDB ID) from the payload
         series_id = payload.media.tmdbId
         request_id = payload.request.request_id if hasattr(payload, 'request') else None
             
@@ -1386,17 +1385,65 @@ async def process_tv_request(payload: WebhookPayload):
             logger.error(f"Failed to fetch TV show details for series_id {series_id}")
             return {"status": "error", "message": "Failed to fetch TV show details"}
 
-        # Format show title with year
         show_title = f"{show_details['title']} ({show_details['year']})"
         logger.info(f"Processing TV show request: {show_title} ({show_details['seasons']} seasons)")
         
+        # Extract requested seasons from the extra field
+        requested_seasons = []
+        if payload.extra:
+            for extra in payload.extra:
+                if extra.get('name') == 'Requested Seasons':
+                    # Parse seasons string like "1, 2" into list of integers
+                    seasons_str = extra.get('value', '')
+                    requested_seasons = [int(s.strip()) for s in seasons_str.split(',') if s.strip().isdigit()]
+                    break
+        
+        logger.info(f"Requested seasons: {requested_seasons}")
+        
+        # Search for each requested season
+        successful_seasons = []
+        failed_seasons = []
+        
+        for season in requested_seasons:
+            season_search = f"{show_details['title']} S{season:02d}"
+            logger.info(f"Searching for: {season_search}")
+            
+            try:
+                # Add timeout handling for search_on_debrid
+                confirmation_flag = await asyncio.wait_for(
+                    asyncio.to_thread(search_on_debrid, season_search, driver),
+                    timeout=60.0  # 60 second timeout
+                )
+                
+                if confirmation_flag:
+                    successful_seasons.append(season)
+                else:
+                    failed_seasons.append(season)
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout while processing season {season}")
+                failed_seasons.append(season)
+            except Exception as ex:
+                logger.error(f"Error processing season {season}: {ex}")
+                failed_seasons.append(season)
+        
+        # Mark as completed only if all requested seasons were successful
+        if successful_seasons and not failed_seasons and request_id:
+            media_id = get_media_id_from_request(request_id)
+            if media_id:
+                if mark_completed(media_id, series_id):
+                    logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
+                else:
+                    logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
+        
         return {
-            "status": "success", 
+            "status": "success" if not failed_seasons else "partial" if successful_seasons else "error",
             "tmdb_id": series_id,
             "request_id": request_id,
             "title": show_title,
-            "seasons": show_details['seasons'],
-            "message": "TV show details retrieved"
+            "successful_seasons": successful_seasons,
+            "failed_seasons": failed_seasons,
+            "message": f"Processed {len(successful_seasons)} of {len(requested_seasons)} seasons successfully"
         }
         
     except Exception as e:
