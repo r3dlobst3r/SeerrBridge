@@ -596,10 +596,17 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_movie_request(payload: WebhookPayload):
     try:
-        # Extract TMDB ID and media_id (if available)
+        logger.info(f"Received webhook payload: {payload.dict()}")
+        # Extract TMDB ID and media_id from the payload
         tmdb_id = payload.media.tmdbId
-        media_id = getattr(payload.media, 'id', None)  # Changed from media_id to id
         
+        # Try different ways to get the media_id
+        media_id = None
+        if hasattr(payload, 'request'):
+            media_id = getattr(payload.request, 'id', None)
+        if media_id is None and hasattr(payload.media, 'id'):
+            media_id = payload.media.id
+            
         logger.info(f"Processing request for TMDB ID {tmdb_id} with media_id {media_id}")
         
         # Get movie details from TMDB using the synchronous function
@@ -618,10 +625,13 @@ async def process_movie_request(payload: WebhookPayload):
             
             if confirmation_flag:
                 logger.info(f"Attempting to mark media {media_id} as completed")
-                if media_id and mark_completed(media_id, tmdb_id):
-                    logger.success(f"Successfully marked media {media_id} as completed in overseerr")
+                if media_id:
+                    if mark_completed(media_id, tmdb_id):
+                        logger.success(f"Successfully marked media {media_id} as completed in overseerr")
+                    else:
+                        logger.error(f"Failed to mark media {media_id} as completed in overseerr")
                 else:
-                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                    logger.error("No media_id found in payload, cannot mark as completed")
             else:
                 logger.warning(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
                 
