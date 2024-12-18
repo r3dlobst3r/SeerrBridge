@@ -582,31 +582,54 @@ async def process_movie_request(payload: WebhookPayload):
         
         logger.info(f"Processing webhook request with TMDB ID {tmdb_id}")
         
-        movie_details = get_movie_details_from_tmdb(tmdb_id)
+        # Add retry logic for getting movie details
+        retries = 3
+        while retries > 0:
+            movie_details = get_movie_details_from_tmdb(tmdb_id)
+            if movie_details:
+                break
+            retries -= 1
+            if retries > 0:
+                await asyncio.sleep(1)  # Wait 1 second before retry
+        
         if not movie_details:
-            logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
+            logger.error(f"Failed to get movie details for TMDB ID {tmdb_id} after all retries")
             raise HTTPException(status_code=500, detail="Failed to fetch movie details")
         
         movie_title = f"{movie_details['title']} ({movie_details['year']})"
         logger.info(f"Processing movie request: {movie_title}")
         
-        try:
-            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
-            if confirmation_flag and media_id:
-                if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked media {media_id} as completed in overseerr")
-                    return {"status": "success", "movie_title": movie_title}
+        # Add retry logic for search_on_debrid
+        retries = 3
+        while retries > 0:
+            try:
+                confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+                if confirmation_flag:
+                    break
+                retries -= 1
+                if retries > 0:
+                    logger.warning(f"Retrying search for {movie_title}, {retries} attempts remaining")
+                    await asyncio.sleep(2)  # Wait 2 seconds before retry
+            except Exception as ex:
+                logger.error(f"Search attempt failed: {ex}")
+                retries -= 1
+                if retries > 0:
+                    logger.warning(f"Retrying after error, {retries} attempts remaining")
+                    await asyncio.sleep(2)
                 else:
-                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
-                    raise HTTPException(status_code=500, detail="Failed to mark as completed")
+                    raise
+
+        if confirmation_flag and media_id:
+            if mark_completed(media_id, tmdb_id):
+                logger.success(f"Marked media {media_id} as completed in overseerr")
+                return {"status": "success", "movie_title": movie_title}
             else:
-                logger.info(f"Media was not properly confirmed or no media_id provided")
-                return {"status": "pending", "movie_title": movie_title}
+                logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                raise HTTPException(status_code=500, detail="Failed to mark as completed")
+        else:
+            logger.info(f"Media was not properly confirmed or no media_id provided")
+            return {"status": "pending", "movie_title": movie_title}
                 
-        except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
-            raise HTTPException(status_code=500, detail=str(ex))
-            
     except Exception as e:
         logger.error(f"Error processing webhook payload: {e}")
         raise HTTPException(status_code=500, detail=str(e))
