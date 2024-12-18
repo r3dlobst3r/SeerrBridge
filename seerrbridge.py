@@ -90,12 +90,10 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
-    model_config = ConfigDict(
-        extra='allow',  # Allow extra fields
-        populate_by_name=True,  # Allow population by field name
-        validate_assignment=True  # Validate on assignment
-    )
-    
+    class Config:
+        arbitrary_types_allowed = True
+        extra = 'allow'
+
     media_type: str
     tmdbId: int
     id: Optional[int] = None
@@ -148,11 +146,10 @@ class CommentInfo(BaseModel):
     commentedBy_settings_telegramChatId: str
 
 class WebhookPayload(BaseModel):
-    notification_type: str
-    event: str
-    subject: str
-    message: Optional[str] = None
-    image: Optional[str] = None
+    class Config:
+        arbitrary_types_allowed = True
+        extra = 'allow'
+
     media: MediaInfo
     request: RequestInfo
     issue: Optional[IssueInfo] = None  # Allow issue to be None
