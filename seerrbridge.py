@@ -597,17 +597,20 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 async def process_movie_request(payload: WebhookPayload):
     try:
         logger.info(f"Received webhook payload: {payload.dict()}")
+        
         # Extract TMDB ID and media_id from the payload
         tmdb_id = payload.media.tmdbId
         
         # Try different ways to get the media_id
         media_id = None
-        if hasattr(payload, 'request'):
-            media_id = getattr(payload.request, 'id', None)
-        if media_id is None and hasattr(payload.media, 'id'):
+        if hasattr(payload, 'media') and hasattr(payload.media, 'id'):
             media_id = payload.media.id
+        elif hasattr(payload, 'request') and hasattr(payload.request, 'id'):
+            media_id = payload.request.id
+        elif hasattr(payload, 'notification') and hasattr(payload.notification, 'media'):
+            media_id = payload.notification.media.id
             
-        logger.info(f"Processing request for TMDB ID {tmdb_id} with media_id {media_id}")
+        logger.info(f"Processing request for TMDB ID {tmdb_id} with extracted media_id {media_id}")
         
         # Get movie details from TMDB using the synchronous function
         movie_details = get_movie_details_from_tmdb(tmdb_id)
@@ -620,7 +623,11 @@ async def process_movie_request(payload: WebhookPayload):
         logger.info(f"Processing movie request: {movie_title}")
         
         try:
-            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+            # Add timeout handling for search_on_debrid
+            confirmation_flag = await asyncio.wait_for(
+                asyncio.to_thread(search_on_debrid, movie_title, driver),
+                timeout=60.0  # 60 second timeout
+            )
             logger.info(f"Search confirmation flag: {confirmation_flag}")
             
             if confirmation_flag:
@@ -635,6 +642,9 @@ async def process_movie_request(payload: WebhookPayload):
             else:
                 logger.warning(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
                 
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout while processing movie request {movie_title}")
+            return {"status": "error", "message": "Request processing timed out"}
         except Exception as ex:
             logger.critical(f"Error processing movie request {movie_title}: {ex}")
                 
