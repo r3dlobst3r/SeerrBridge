@@ -598,9 +598,9 @@ async def process_movie_request(payload: WebhookPayload):
     try:
         # Extract TMDB ID and media_id (if available)
         tmdb_id = payload.media.tmdbId
-        media_id = getattr(payload.media, 'media_id', None)
+        media_id = getattr(payload.media, 'id', None)  # Changed from media_id to id
         
-        logger.info(f"Processing request for TMDB ID {tmdb_id} without media_id")
+        logger.info(f"Processing request for TMDB ID {tmdb_id} with media_id {media_id}")
         
         # Get movie details from TMDB using the synchronous function
         movie_details = get_movie_details_from_tmdb(tmdb_id)
@@ -614,21 +614,26 @@ async def process_movie_request(payload: WebhookPayload):
         
         try:
             confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+            logger.info(f"Search confirmation flag: {confirmation_flag}")
+            
             if confirmation_flag:
-                if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked media {media_id} as completed in overseerr")
+                logger.info(f"Attempting to mark media {media_id} as completed")
+                if media_id and mark_completed(media_id, tmdb_id):
+                    logger.success(f"Successfully marked media {media_id} as completed in overseerr")
                 else:
                     logger.error(f"Failed to mark media {media_id} as completed in overseerr")
             else:
-                logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                logger.warning(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                
         except Exception as ex:
             logger.critical(f"Error processing movie request {movie_title}: {ex}")
                 
         return {
             "status": "success", 
             "tmdb_id": tmdb_id,
+            "media_id": media_id,
             "title": movie_title,
-            "message": "Request added to processing queue"
+            "message": "Request processed"
         }
         
     except Exception as e:
