@@ -570,6 +570,47 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
         logger.error(f"Error fetching movie details from TMDB API: {e}")
         return None
 
+async def process_movie_request(payload: WebhookPayload):
+    """Process a single movie request from the webhook"""
+    try:
+        if payload.media.media_type != "movie":
+            logger.warning(f"Received non-movie media type: {payload.media.media_type}")
+            return {"status": "skipped", "reason": "not a movie"}
+
+        tmdb_id = payload.media.tmdbId
+        media_id = payload.media.id if hasattr(payload.media, 'id') else None
+        
+        logger.info(f"Processing webhook request with TMDB ID {tmdb_id}")
+        
+        movie_details = get_movie_details_from_tmdb(tmdb_id)
+        if not movie_details:
+            logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
+            raise HTTPException(status_code=500, detail="Failed to fetch movie details")
+        
+        movie_title = f"{movie_details['title']} ({movie_details['year']})"
+        logger.info(f"Processing movie request: {movie_title}")
+        
+        try:
+            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+            if confirmation_flag and media_id:
+                if mark_completed(media_id, tmdb_id):
+                    logger.success(f"Marked media {media_id} as completed in overseerr")
+                    return {"status": "success", "movie_title": movie_title}
+                else:
+                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                    raise HTTPException(status_code=500, detail="Failed to mark as completed")
+            else:
+                logger.info(f"Media was not properly confirmed or no media_id provided")
+                return {"status": "pending", "movie_title": movie_title}
+                
+        except Exception as ex:
+            logger.critical(f"Error processing movie request {movie_title}: {ex}")
+            raise HTTPException(status_code=500, detail=str(ex))
+            
+    except Exception as e:
+        logger.error(f"Error processing webhook payload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 ### Process the fetched messages (newest to oldest)
 async def process_movie_requests():
     requests = get_overseerr_media_requests()
