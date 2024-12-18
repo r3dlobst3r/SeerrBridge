@@ -8,7 +8,7 @@
 # © 2024
 # -----------------------------------------------------------------------------
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, ConfigDict
 from typing import Optional, List, Dict, Any
 import asyncio
 import json
@@ -90,9 +90,15 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
+    model_config = ConfigDict(
+        extra='allow',  # Allow extra fields
+        populate_by_name=True,  # Allow population by field name
+        validate_assignment=True  # Validate on assignment
+    )
+    
     media_type: str
     tmdbId: int
-    id: Optional[int] = None  # Make id optional with a default of None
+    id: Optional[int] = None
     status: Optional[int] = None
     status4k: Optional[int] = None
     createdAt: Optional[str] = None
@@ -344,7 +350,7 @@ async def initialize_browser():
         login(driver)
         logger.success("Refreshed the page to apply local storage values.")
         # After refreshing, call the login function to click the login button
-        # After successful login, click on "⚙️ Settings" to open the settings popup
+        # After successful login, click on "��️ Settings" to open the settings popup
         try:
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
