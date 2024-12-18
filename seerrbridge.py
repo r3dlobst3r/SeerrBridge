@@ -1252,12 +1252,22 @@ async def get_user_input():
 @app.post("/jellyseer-webhook/")
 async def jellyseer_webhook(request: Request):
     try:
-        payload = WebhookPayload(**await request.json())
+        # Get the raw JSON first to inspect it
+        raw_data = await request.json()
+        logger.info(f"Received webhook data: {raw_data}")
+        
+        payload = WebhookPayload(**raw_data)
         
         # Handle based on media type
         if payload.media.media_type == "movie":
             return await process_movie_request(payload)
         elif payload.media.media_type == "tv":
+            # For TV shows, we need the TMDB ID, not TVDB ID
+            tmdb_id = payload.media.tmdbId
+            if not tmdb_id:
+                logger.error("No TMDB ID found for TV show request")
+                return {"status": "error", "message": "No TMDB ID found"}
+                
             return await process_tv_request(payload)
         else:
             logger.error(f"Unsupported media type: {payload.media.media_type}")
@@ -1336,6 +1346,9 @@ async def on_close():
 
 def get_tv_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
     """Fetch TV show details from TMDB API"""
+    # Log the API call for debugging
+    logger.info(f"Fetching TV show details for TMDB ID: {tmdb_id}")
+    
     url = f"https://api.themoviedb.org/3/tv/{tmdb_id}"
     params = {
         "api_key": os.getenv('TMDB_API_KEY')
@@ -1343,13 +1356,20 @@ def get_tv_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
     
     try:
         response = requests.get(url, params=params, timeout=10)
+        # Log the response status and content for debugging
+        logger.info(f"TMDB API response status: {response.status_code}")
+        if response.status_code != 200:
+            logger.error(f"TMDB API response content: {response.text}")
+            
         if response.status_code == 200:
             data = response.json()
-            return {
+            result = {
                 "title": data['name'],
                 "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
                 "seasons": data.get('number_of_seasons', 0)
             }
+            logger.info(f"Successfully retrieved TV show details: {result}")
+            return result
         else:
             logger.error(f"TMDB TV API request failed with status code {response.status_code}")
             return None
