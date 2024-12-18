@@ -1302,7 +1302,7 @@ def get_tv_details_from_tmdb(series_id: str) -> Optional[dict]:
 async def process_tv_request(payload: WebhookPayload):
     try:
         series_id = payload.media.tmdbId
-        request_id = payload.request.request_id if hasattr(payload, 'request') else None
+        request_id = payload.request.request_id
             
         logger.info(f"Processing TV request for series_id {series_id} with request_id {request_id}")
         
@@ -1319,9 +1319,9 @@ async def process_tv_request(payload: WebhookPayload):
         requested_seasons = []
         if payload.extra:
             for extra in payload.extra:
-                if extra.get('name') == 'Requested Seasons':
+                if extra.name == 'Requested Seasons':  # Use .name instead of .get('name')
                     # Parse seasons string like "1, 2" into list of integers
-                    seasons_str = extra.get('value', '')
+                    seasons_str = extra.value  # Use .value instead of .get('value')
                     requested_seasons = [int(s.strip()) for s in seasons_str.split(',') if s.strip().isdigit()]
                     break
         
@@ -1344,8 +1344,10 @@ async def process_tv_request(payload: WebhookPayload):
                 
                 if confirmation_flag:
                     successful_seasons.append(season)
+                    logger.info(f"Successfully found season {season}")
                 else:
                     failed_seasons.append(season)
+                    logger.warning(f"Failed to find season {season}")
                     
             except asyncio.TimeoutError:
                 logger.error(f"Timeout while processing season {season}")
