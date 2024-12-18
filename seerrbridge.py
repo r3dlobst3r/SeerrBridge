@@ -36,6 +36,7 @@ from fuzzywuzzy import fuzz
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from selenium.webdriver.common.keys import Keys
+import aiohttp
 
 
 # Configure loguru
@@ -594,6 +595,38 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
             return None
     except Exception as e:
         logger.error(f"Error fetching movie details from TMDB API: {e}")
+        return None
+
+async def get_movie_details(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    """Fetch movie details from TMDB API."""
+    try:
+        tmdb_api_key = os.getenv('TMDB_API_KEY')
+        if not tmdb_api_key:
+            logger.error("TMDB_API_KEY not found in environment variables")
+            return None
+
+        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"
+        headers = {
+            "Authorization": f"Bearer {tmdb_api_key}",
+            "accept": "application/json"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return {
+                        'title': data.get('title'),
+                        'release_date': data.get('release_date'),
+                        'id': data.get('id'),
+                        'original_title': data.get('original_title')
+                    }
+                else:
+                    logger.error(f"Failed to fetch movie details. Status: {response.status}")
+                    return None
+
+    except Exception as e:
+        logger.error(f"Error fetching movie details: {e}")
         return None
 
 async def process_movie_request(payload: WebhookPayload):
