@@ -578,7 +578,7 @@ async def process_movie_request(payload: WebhookPayload):
             return {"status": "skipped", "reason": "not a movie"}
 
         tmdb_id = payload.media.tmdbId
-        media_id = payload.media.id if hasattr(payload.media, 'id') else None
+        media_id = payload.media.id
         
         logger.info(f"Processing webhook request with TMDB ID {tmdb_id}")
         
@@ -590,7 +590,7 @@ async def process_movie_request(payload: WebhookPayload):
                 break
             retries -= 1
             if retries > 0:
-                await asyncio.sleep(1)  # Wait 1 second before retry
+                await asyncio.sleep(1)
         
         if not movie_details:
             logger.error(f"Failed to get movie details for TMDB ID {tmdb_id} after all retries")
@@ -601,6 +601,7 @@ async def process_movie_request(payload: WebhookPayload):
         
         # Add retry logic for search_on_debrid
         retries = 3
+        confirmation_flag = False
         while retries > 0:
             try:
                 confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
@@ -609,7 +610,7 @@ async def process_movie_request(payload: WebhookPayload):
                 retries -= 1
                 if retries > 0:
                     logger.warning(f"Retrying search for {movie_title}, {retries} attempts remaining")
-                    await asyncio.sleep(2)  # Wait 2 seconds before retry
+                    await asyncio.sleep(2)
             except Exception as ex:
                 logger.error(f"Search attempt failed: {ex}")
                 retries -= 1
@@ -619,7 +620,9 @@ async def process_movie_request(payload: WebhookPayload):
                 else:
                     raise
 
-        if confirmation_flag and media_id:
+        # Check if we got confirmation and have a media_id
+        if confirmation_flag:
+            logger.info(f"Got confirmation flag for {movie_title}, marking as completed")
             if mark_completed(media_id, tmdb_id):
                 logger.success(f"Marked media {media_id} as completed in overseerr")
                 return {"status": "success", "movie_title": movie_title}
@@ -627,7 +630,7 @@ async def process_movie_request(payload: WebhookPayload):
                 logger.error(f"Failed to mark media {media_id} as completed in overseerr")
                 raise HTTPException(status_code=500, detail="Failed to mark as completed")
         else:
-            logger.info(f"Media was not properly confirmed or no media_id provided")
+            logger.warning(f"No confirmation received for {movie_title}")
             return {"status": "pending", "movie_title": movie_title}
                 
     except Exception as e:
