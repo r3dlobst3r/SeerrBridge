@@ -596,9 +596,6 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_movie_request(payload: WebhookPayload):
     try:
-        # Log the raw payload
-        logger.info(f"Received webhook payload: {payload.dict()}")
-        
         # Extract TMDB ID and request_id from the payload
         tmdb_id = payload.media.tmdbId
         request_id = payload.request.request_id if hasattr(payload, 'request') else None
@@ -621,13 +618,11 @@ async def process_movie_request(payload: WebhookPayload):
                 asyncio.to_thread(search_on_debrid, movie_title, driver),
                 timeout=60.0  # 60 second timeout
             )
-            logger.info(f"Search confirmation flag: {confirmation_flag}")
             
             if confirmation_flag and request_id:
                 # Get the media_id using the request_id
                 media_id = get_media_id_from_request(request_id)
                 if media_id:
-                    logger.info(f"Found media_id {media_id} for request_id {request_id}")
                     if mark_completed(media_id, tmdb_id):
                         logger.success(f"Successfully marked media {media_id} as completed in overseerr")
                     else:
