@@ -90,29 +90,29 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
-    # First: model configuration
     model_config = {
         "populate_by_name": True,
         "extra": "allow",
         "validate_assignment": True,
         "str_strip_whitespace": True,
+        "validate_default": True,
+        "from_attributes": True
     }
 
-    # Second: field definitions
-    media_type: str = Field(...)
-    tmdbId: int = Field(...)
-    id: Optional[int] = Field(default=None)
-    status: Optional[int] = Field(default=None)
-    status4k: Optional[int] = Field(default=None)
-    createdAt: Optional[str] = Field(default=None)
-    updatedAt: Optional[str] = Field(default=None)
+    media_type: str
+    tmdbId: int
+    id: Optional[int] = None
+    status: Optional[int] = None
+    status4k: Optional[int] = None
+    createdAt: Optional[str] = None
+    updatedAt: Optional[str] = None
 
-    @field_validator('tvdbId', mode='before')
+    @field_validator('*')
     @classmethod
-    def empty_string_to_none(cls, value):
-        if value == '':
+    def empty_str_to_none(cls, v):
+        if isinstance(v, str) and not v.strip():
             return None
-        return value
+        return v
 
 class SeasonInfo(BaseModel):
     seasonNumber: int
@@ -151,13 +151,12 @@ class CommentInfo(BaseModel):
     commentedBy_settings_telegramChatId: str
 
 class WebhookPayload(BaseModel):
-    # First: model configuration
     model_config = {
         "populate_by_name": True,
         "extra": "allow",
+        "from_attributes": True
     }
 
-    # Second: field definitions
     media: MediaInfo
     request: RequestInfo
     issue: Optional[IssueInfo] = None  # Allow issue to be None
