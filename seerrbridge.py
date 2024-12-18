@@ -37,6 +37,7 @@ from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from selenium.webdriver.common.keys import Keys
 import aiohttp
+from types import SimpleNamespace
 
 
 # Configure loguru
@@ -431,15 +432,62 @@ async def shutdown_browser():
 
 ### Function to process requests from the queue
 async def process_requests():
-    while True:
-        movie_title = await request_queue.get()  # Wait for the next request in the queue
-        logger.info(f"Processing movie request: {movie_title}")
+    """Process both movie and TV show requests"""
+    requests = get_overseerr_media_requests()
+    if not requests:
+        logger.info("No requests to process")
+        return
+    
+    for request in requests:
         try:
-            await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request
-        except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
-        finally:
-            request_queue.task_done()  # Mark the request as done
+            tmdb_id = request['media']['tmdbId']
+            media_id = request['media']['id']
+            media_type = request['media'].get('mediaType', '').lower()
+            
+            logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
+            
+            if media_type == 'tv':
+                # Create a WebhookPayload-like object for TV shows
+                payload = WebhookPayload(
+                    media=SimpleNamespace(
+                        media_type='tv',
+                        tmdbId=tmdb_id,
+                        tvdbId=request['media'].get('tvdbId'),
+                        status='PENDING'
+                    ),
+                    request=SimpleNamespace(
+                        request_id=str(request.get('id'))
+                    ),
+                    extra=[{'name': 'Requested Seasons', 'value': ', '.join(str(s['seasonNumber']) for s in request.get('seasons', []))}]
+                )
+                await process_tv_request(payload)
+            else:
+                # Handle as movie (existing logic)
+                movie_details = get_movie_details_from_tmdb(tmdb_id)
+                if not movie_details:
+                    logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
+                    continue
+                
+                movie_title = f"{movie_details['title']} ({movie_details['year']})"
+                logger.info(f"Processing movie request: {movie_title}")
+                
+                try:
+                    confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+                    if confirmation_flag:
+                        if mark_completed(media_id, tmdb_id):
+                            logger.success(f"Marked media {media_id} as completed in overseerr")
+                        else:
+                            logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                    else:
+                        logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                except Exception as ex:
+                    logger.critical(f"Error processing movie request {movie_title}: {ex}")
+                    
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            continue
+
+    logger.info("Finished processing all current requests. Waiting for new requests.")
 
 ### Function to add requests to the queue
 async def add_request_to_queue(movie_title):
@@ -668,40 +716,6 @@ def get_media_id_from_request(request_id: str) -> Optional[int]:
     except Exception as e:
         logger.error(f"Error getting request details: {e}")
         return None
-
-### Process the fetched messages (newest to oldest)
-async def process_movie_requests():
-    requests = get_overseerr_media_requests()
-    if not requests:
-        logger.info("No requests to process")
-        return
-    
-    for request in requests:
-        tmdb_id = request['media']['tmdbId']
-        media_id = request['media']['id']
-        logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id}")
-        
-        movie_details = get_movie_details_from_tmdb(tmdb_id)
-        if not movie_details:
-            logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
-            continue
-        
-        movie_title = f"{movie_details['title']} ({movie_details['year']})"
-        logger.info(f"Processing movie request: {movie_title}")
-        
-        try:
-            confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request and get the confirmation flag
-            if confirmation_flag:
-                if mark_completed(media_id, tmdb_id):
-                    logger.success(f"Marked media {media_id} as completed in overseerr")
-                else:
-                    logger.error(f"Failed to mark media {media_id} as completed in overseerr")
-            else:
-                logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
-        except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
-
-    logger.info("Finished processing all current requests. Waiting for new requests.")
 
 def mark_completed(media_id: int, tmdb_id: int) -> bool:
     """Mark item as completed in overseerr"""
@@ -1288,9 +1302,9 @@ def schedule_token_refresh():
 ### Background Task to Process Overseerr Requests Periodically ###
 @app.on_event("startup")
 async def startup_event():
-    global processing_task
-    logger.info('Starting SeerrBridge...')
-
+    global driver
+    logger.info("Starting SeerrBridge...")
+    
     # Check and refresh access token before any other initialization
     check_and_refresh_access_token()
 
@@ -1301,43 +1315,19 @@ async def startup_event():
         logger.error(f"Failed to initialize browser: {e}")
         return
 
-    # Start the request processing task if not already started
-    if processing_task is None:
-        processing_task = asyncio.create_task(process_requests())
-        logger.info("Started request processing task.")
-
-    # Schedule the token refresh
-    schedule_token_refresh()
-    scheduler.start()
-    # Ask user if they want to proceed with the initial check and recurring task
-    if ENABLE_AUTOMATIC_BACKGROUND_TASK:
-        user_input = 'y'
-    else: 
-        user_input = await get_user_input()
+    # Start the request processing task
+    await process_requests()
+    logger.info("Completed initial check of requests.")
     
-    if user_input == 'y':
-        try:
-            # Run the initial check immediately
-            await process_movie_requests()
-            logger.info("Completed initial check of movie requests.")
+    # Schedule recurring checks
+    if os.getenv('DOCKER_CONTAINER', 'false').lower() == 'true':
+        logger.info("Running in Docker, automatically selecting 'y' for recurring Overseerr check.")
+        schedule_recheck_requests()
 
-            # Schedule the rechecking of movie requests every 2 hours
-            schedule_recheck_movie_requests()
-        except Exception as e:
-            logger.error(f"Error while processing movie requests: {e}")
-
-    elif user_input == 'n':
-        logger.info("Initial check and recurring task were skipped by user input.")
-        return  # Exit the function if the user opts out
-
-    else:
-        logger.warning("Invalid input. Please restart the bot and enter 'y' or 'n'.")
-
-
-def schedule_recheck_movie_requests():
+def schedule_recheck_requests():
     # Correctly schedule the job with the REFRESH_INTERVAL_MINUTES configured interval.
-    scheduler.add_job(process_movie_requests, 'interval', minutes=REFRESH_INTERVAL_MINUTES)
-    logger.info(f"Scheduled rechecking movie requests every {REFRESH_INTERVAL_MINUTES} minute(s).")
+    scheduler.add_job(process_requests, 'interval', minutes=REFRESH_INTERVAL_MINUTES)
+    logger.info(f"Scheduled rechecking requests every {REFRESH_INTERVAL_MINUTES} minute(s).")
 
 
 
