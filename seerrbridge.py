@@ -596,19 +596,31 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_movie_request(payload: WebhookPayload):
     try:
+        # Log the raw payload
         logger.info(f"Received webhook payload: {payload.dict()}")
+        
+        # Log the payload structure
+        logger.info("Payload structure:")
+        logger.info(f"Media attributes: {dir(payload.media)}")
+        if hasattr(payload, 'request'):
+            logger.info(f"Request attributes: {dir(payload.request)}")
+        if hasattr(payload, 'notification'):
+            logger.info(f"Notification attributes: {dir(payload.notification)}")
         
         # Extract TMDB ID and media_id from the payload
         tmdb_id = payload.media.tmdbId
         
         # Try different ways to get the media_id
         media_id = None
-        if hasattr(payload, 'media') and hasattr(payload.media, 'id'):
+        if hasattr(payload.media, 'id'):
             media_id = payload.media.id
+            logger.info(f"Found media_id in media object: {media_id}")
         elif hasattr(payload, 'request') and hasattr(payload.request, 'id'):
             media_id = payload.request.id
+            logger.info(f"Found media_id in request object: {media_id}")
         elif hasattr(payload, 'notification') and hasattr(payload.notification, 'media'):
             media_id = payload.notification.media.id
+            logger.info(f"Found media_id in notification object: {media_id}")
             
         logger.info(f"Processing request for TMDB ID {tmdb_id} with extracted media_id {media_id}")
         
