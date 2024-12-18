@@ -1258,7 +1258,12 @@ async def jellyseer_webhook(request: Request):
         if payload.media.media_type == "movie":
             return await process_movie_request(payload)
         elif payload.media.media_type == "tv":
-            return await process_tv_request(payload)
+            logger.info(f"TV show request received for {payload.subject}")
+            return {
+                "status": "skipped",
+                "message": "TV show support is currently disabled",
+                "title": payload.subject
+            }
         else:
             logger.error(f"Unsupported media type: {payload.media.media_type}")
             raise HTTPException(status_code=400, detail="Unsupported media type")
