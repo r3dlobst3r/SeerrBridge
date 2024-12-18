@@ -121,8 +121,8 @@ class RequestInfo(BaseModel):
     requestedBy_email: str
     requestedBy_username: str
     requestedBy_avatar: str
-    requestedBy_settings_discordId: str
-    requestedBy_settings_telegramChatId: str
+    requestedBy_settings_discordId: Optional[str] = None  # Make optional
+    requestedBy_settings_telegramChatId: Optional[str] = None  # Make optional
 
 class IssueInfo(BaseModel):
     issue_id: str
@@ -921,7 +921,6 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
-                )
 
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
