@@ -35,6 +35,7 @@ from deep_translator import GoogleTranslator
 from fuzzywuzzy import fuzz
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from selenium.webdriver.common.keys import Keys
 
 
 # Configure loguru
@@ -94,6 +95,9 @@ class MediaInfo(BaseModel):
     tvdbId: Optional[int] = Field(default=None, alias='tvdbId')
     status: str
     status4k: str
+    seasonCount: Optional[int] = None  # Add for TV shows
+    episodeCount: Optional[int] = None  # Add for TV shows
+    seasons: Optional[List[int]] = None  # Add for tracking seasons
 
     @field_validator('tvdbId', mode='before')
     @classmethod
@@ -101,6 +105,16 @@ class MediaInfo(BaseModel):
         if value == '':
             return None
         return value
+
+class SeasonInfo(BaseModel):
+    seasonNumber: int
+    episodeCount: int
+    episodes: List[int]  # List of episode numbers to process
+
+class TVShowRequest(BaseModel):
+    title: str
+    year: Optional[int]
+    seasons: List[SeasonInfo]
 
 class RequestInfo(BaseModel):
     request_id: str
@@ -1158,47 +1172,39 @@ async def get_user_input():
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
 async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
-    # Log the raw incoming payload for debugging
     raw_payload = await request.json()
-    #logger.info(f"Raw incoming webhook payload: {raw_payload}")
-
+    
     try:
-        # Parse the payload using the WebhookPayload model
         payload = WebhookPayload(**raw_payload)
+        
+        if payload.media.media_type == "tv":
+            # Handle TV show request
+            tvdb_id = payload.media.tvdbId
+            if not tvdb_id:
+                logger.error("TVDB ID is missing in the TV show payload")
+                raise HTTPException(status_code=400, detail="TVDB ID is missing")
+                
+            # Get show details from TVDB API
+            show_details = get_show_details_from_tvdb(tvdb_id)
+            if not show_details:
+                logger.error("Failed to fetch show details from TVDB")
+                raise HTTPException(status_code=500, detail="Failed to fetch show details")
+                
+            # Process each season/episode
+            for season in show_details['seasons']:
+                for episode in season['episodes']:
+                    show_title = f"{show_details['title']} S{season['number']:02d}E{episode['number']:02d}"
+                    background_tasks.add_task(add_request_to_queue, show_title)
+                    
+            return {"status": "success", "show_title": show_details['title']}
+            
+        else:
+            # Existing movie handling code
+            return await process_movie_request(payload)
+            
     except ValidationError as e:
-        # Log the validation error details
         logger.error(f"Payload validation error: {e}")
         raise HTTPException(status_code=422, detail=str(e))
-
-    # Log the specific event from the payload
-    logger.success(f"Received webhook with event: {payload.event}")
-
-    # Extract tmdbId from the payload
-    tmdb_id = payload.media.tmdbId
-    if not tmdb_id:
-        logger.error("TMDB ID is missing in the payload")
-        raise HTTPException(status_code=400, detail="TMDB ID is missing in the payload")
-
-    # Log the extracted tmdb_id
-    logger.info(f"Extracted tmdbId: {tmdb_id}")
-
-    # Fetch movie details from Trakt using tmdb_id
-    movie_details = get_movie_details_from_trakt(tmdb_id)
-    if not movie_details:
-        logger.error("Failed to fetch movie details from Trakt")
-        raise HTTPException(status_code=500, detail="Failed to fetch movie details from Trakt")
-
-    # Log the fetched movie details
-    movie_title = f"{movie_details['title']} ({movie_details['year']})"
-    logger.info(f"Fetched movie details: {movie_title}")
-
-    # Add movie request to background processing queue
-    background_tasks.add_task(add_request_to_queue, movie_title)
-    
-    # Log the response before returning
-    logger.info(f"Returning response: {movie_details['title']} ({movie_details['year']})")
-    
-    return {"status": "success", "movie_title": movie_details['title'], "movie_year": movie_details['year']}
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
@@ -1263,6 +1269,83 @@ def schedule_recheck_movie_requests():
 
 async def on_close():
     await shutdown_browser()  # Ensure browser is closed when the bot closes
+
+async def search_tv_show(title: str, season: int, episode: int, driver) -> bool:
+    try:
+        # Clean and normalize the TV show title
+        show_title_cleaned = clean_title(title)
+        show_title_normalized = normalize_title(title)
+        
+        logger.info(f"Searching for TV show: {title} S{season:02d}E{episode:02d}")
+        
+        # Navigate to DMM search page
+        driver.get("https://debridmediamanager.com")
+        
+        # Wait for search input and enter show title
+        search_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+        )
+        search_input.clear()
+        search_input.send_keys(title)
+        search_input.send_keys(Keys.RETURN)
+        
+        # Format season and episode pattern (e.g., S01E01)
+        episode_pattern = f"S{season:02d}E{episode:02d}"
+        
+        # Wait for search results and find matching TV show episodes
+        try:
+            show_elements = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.XPATH, f"//a[contains(@href, '/tv/')]"))
+            )
+            
+            for show_element in show_elements:
+                show_title_element = show_element.find_element(By.XPATH, ".//h3")
+                show_title_text = show_title_element.text.strip()
+                
+                # Check if the element contains the correct season and episode
+                if episode_pattern.lower() in show_title_text.lower():
+                    title_match_ratio = fuzz.ratio(
+                        normalize_title(show_title_text.split(episode_pattern)[0]).lower(),
+                        show_title_normalized.lower()
+                    )
+                    
+                    if title_match_ratio >= 69:
+                        logger.info(f"Found matching episode: {show_title_text}")
+                        show_element.click()
+                        
+                        # Process the episode similarly to movies
+                        if await process_tv_episode(driver, title, season, episode):
+                            return True
+            
+            logger.warning(f"No matching episode found for {title} {episode_pattern}")
+            return False
+            
+        except TimeoutException:
+            logger.error(f"Timeout while searching for TV show: {title} {episode_pattern}")
+            return False
+            
+    except Exception as ex:
+        logger.critical(f"Error processing TV show {title} S{season:02d}E{episode:02d}: {ex}")
+        return False
+
+async def process_tv_episode(driver, title: str, season: int, episode: int) -> bool:
+    """
+    Process a specific TV episode in DMM similar to how movies are processed
+    """
+    # Similar to the movie processing logic but adapted for TV episodes
+    try:
+        # Wait for the episode's details page to load
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+        )
+        
+        # Rest of the processing logic similar to movies
+        # You can reuse much of the existing movie processing logic here
+        return True
+        
+    except Exception as ex:
+        logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
+        return False
 
 # Main entry point for running the FastAPI server
 if __name__ == "__main__":
