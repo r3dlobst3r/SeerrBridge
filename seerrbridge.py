@@ -90,17 +90,22 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-        extra = 'allow'
+    # First: model configuration
+    model_config = {
+        "populate_by_name": True,
+        "extra": "allow",
+        "validate_assignment": True,
+        "str_strip_whitespace": True,
+    }
 
-    media_type: str
-    tmdbId: int
-    id: Optional[int] = None
-    status: Optional[int] = None
-    status4k: Optional[int] = None
-    createdAt: Optional[str] = None
-    updatedAt: Optional[str] = None
+    # Second: field definitions
+    media_type: str = Field(...)
+    tmdbId: int = Field(...)
+    id: Optional[int] = Field(default=None)
+    status: Optional[int] = Field(default=None)
+    status4k: Optional[int] = Field(default=None)
+    createdAt: Optional[str] = Field(default=None)
+    updatedAt: Optional[str] = Field(default=None)
 
     @field_validator('tvdbId', mode='before')
     @classmethod
@@ -146,10 +151,13 @@ class CommentInfo(BaseModel):
     commentedBy_settings_telegramChatId: str
 
 class WebhookPayload(BaseModel):
-    class Config:
-        arbitrary_types_allowed = True
-        extra = 'allow'
+    # First: model configuration
+    model_config = {
+        "populate_by_name": True,
+        "extra": "allow",
+    }
 
+    # Second: field definitions
     media: MediaInfo
     request: RequestInfo
     issue: Optional[IssueInfo] = None  # Allow issue to be None
@@ -166,7 +174,6 @@ def refresh_access_token():
         'code': RD_REFRESH_TOKEN,
         'grant_type': 'http://oauth.net/grant_type/device/1.0'
     }
-
     try:
         logger.info("Requesting a new access token with the refresh token.")
         response = requests.post(TOKEN_URL, data=data)
@@ -1405,3 +1412,4 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8777)
+
