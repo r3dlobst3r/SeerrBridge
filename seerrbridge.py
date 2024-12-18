@@ -599,30 +599,11 @@ async def process_movie_request(payload: WebhookPayload):
         # Log the raw payload
         logger.info(f"Received webhook payload: {payload.dict()}")
         
-        # Log the payload structure
-        logger.info("Payload structure:")
-        logger.info(f"Media attributes: {dir(payload.media)}")
-        if hasattr(payload, 'request'):
-            logger.info(f"Request attributes: {dir(payload.request)}")
-        if hasattr(payload, 'notification'):
-            logger.info(f"Notification attributes: {dir(payload.notification)}")
-        
-        # Extract TMDB ID and media_id from the payload
+        # Extract TMDB ID and request_id from the payload
         tmdb_id = payload.media.tmdbId
-        
-        # Try different ways to get the media_id
-        media_id = None
-        if hasattr(payload.media, 'id'):
-            media_id = payload.media.id
-            logger.info(f"Found media_id in media object: {media_id}")
-        elif hasattr(payload, 'request') and hasattr(payload.request, 'id'):
-            media_id = payload.request.id
-            logger.info(f"Found media_id in request object: {media_id}")
-        elif hasattr(payload, 'notification') and hasattr(payload.notification, 'media'):
-            media_id = payload.notification.media.id
-            logger.info(f"Found media_id in notification object: {media_id}")
+        request_id = payload.request.request_id if hasattr(payload, 'request') else None
             
-        logger.info(f"Processing request for TMDB ID {tmdb_id} with extracted media_id {media_id}")
+        logger.info(f"Processing request for TMDB ID {tmdb_id} with request_id {request_id}")
         
         # Get movie details from TMDB using the synchronous function
         movie_details = get_movie_details_from_tmdb(tmdb_id)
@@ -642,17 +623,19 @@ async def process_movie_request(payload: WebhookPayload):
             )
             logger.info(f"Search confirmation flag: {confirmation_flag}")
             
-            if confirmation_flag:
-                logger.info(f"Attempting to mark media {media_id} as completed")
+            if confirmation_flag and request_id:
+                # Get the media_id using the request_id
+                media_id = get_media_id_from_request(request_id)
                 if media_id:
+                    logger.info(f"Found media_id {media_id} for request_id {request_id}")
                     if mark_completed(media_id, tmdb_id):
                         logger.success(f"Successfully marked media {media_id} as completed in overseerr")
                     else:
                         logger.error(f"Failed to mark media {media_id} as completed in overseerr")
                 else:
-                    logger.error("No media_id found in payload, cannot mark as completed")
+                    logger.error(f"Could not find media_id for request_id {request_id}")
             else:
-                logger.warning(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                logger.warning(f"Request {request_id} was not properly confirmed. Skipping marking as completed.")
                 
         except asyncio.TimeoutError:
             logger.error(f"Timeout while processing movie request {movie_title}")
@@ -663,7 +646,7 @@ async def process_movie_request(payload: WebhookPayload):
         return {
             "status": "success", 
             "tmdb_id": tmdb_id,
-            "media_id": media_id,
+            "request_id": request_id,
             "title": movie_title,
             "message": "Request processed"
         }
@@ -671,6 +654,25 @@ async def process_movie_request(payload: WebhookPayload):
     except Exception as e:
         logger.error(f"Error processing movie request: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def get_media_id_from_request(request_id: str) -> Optional[int]:
+    """Get the media_id from Overseerr using the request_id"""
+    url = f"{OVERSEERR_API_BASE_URL}/request/{request_id}"
+    headers = {
+        "X-Api-Key": OVERSEERR_API_KEY
+    }
+    
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('media', {}).get('id')
+        else:
+            logger.error(f"Failed to get request details: {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error getting request details: {e}")
+        return None
 
 ### Process the fetched messages (newest to oldest)
 async def process_movie_requests():
