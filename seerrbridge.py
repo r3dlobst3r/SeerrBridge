@@ -921,6 +921,7 @@ def search_on_debrid(movie_title, driver):
                     EC.presence_of_element_located(
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
+                )
 
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
