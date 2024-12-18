@@ -1344,34 +1344,29 @@ def schedule_recheck_movie_requests():
 async def on_close():
     await shutdown_browser()  # Ensure browser is closed when the bot closes
 
-def get_tv_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
+def get_tv_details_from_tmdb(series_id: str) -> Optional[dict]:
     """Fetch TV show details from TMDB API"""
-    # Log the API call for debugging
-    logger.info(f"Fetching TV show details for TMDB ID: {tmdb_id}")
-    
-    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}"
+    url = f"https://api.themoviedb.org/3/tv/{series_id}"
     params = {
         "api_key": os.getenv('TMDB_API_KEY')
     }
     
     try:
+        logger.info(f"Fetching TV show details for series_id: {series_id}")
         response = requests.get(url, params=params, timeout=10)
-        # Log the response status and content for debugging
-        logger.info(f"TMDB API response status: {response.status_code}")
-        if response.status_code != 200:
-            logger.error(f"TMDB API response content: {response.text}")
-            
+        logger.info(f"TMDB TV API response status: {response.status_code}")
+        
         if response.status_code == 200:
             data = response.json()
             result = {
-                "title": data['name'],
-                "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
+                "title": data.get('name'),  # TV shows use 'name' instead of 'title'
+                "year": datetime.strptime(data.get('first_air_date', ''), '%Y-%m-%d').year if data.get('first_air_date') else None,
                 "seasons": data.get('number_of_seasons', 0)
             }
             logger.info(f"Successfully retrieved TV show details: {result}")
             return result
         else:
-            logger.error(f"TMDB TV API request failed with status code {response.status_code}")
+            logger.error(f"TMDB TV API response content: {response.text}")
             return None
     except Exception as e:
         logger.error(f"Error fetching TV show details from TMDB API: {e}")
@@ -1379,26 +1374,25 @@ def get_tv_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_tv_request(payload: WebhookPayload):
     try:
-        # Extract TMDB ID and request_id from the payload
-        tmdb_id = payload.media.tmdbId
+        # Extract series_id (TMDB ID) from the payload
+        series_id = payload.media.tmdbId
         request_id = payload.request.request_id if hasattr(payload, 'request') else None
             
-        logger.info(f"Processing TV request for TMDB ID {tmdb_id} with request_id {request_id}")
+        logger.info(f"Processing TV request for series_id {series_id} with request_id {request_id}")
         
         # Get show details from TMDB
-        show_details = get_tv_details_from_tmdb(tmdb_id)
+        show_details = get_tv_details_from_tmdb(series_id)
         if not show_details:
-            logger.error(f"Failed to fetch TV show details for TMDB ID {tmdb_id}")
+            logger.error(f"Failed to fetch TV show details for series_id {series_id}")
             return {"status": "error", "message": "Failed to fetch TV show details"}
 
         # Format show title with year
         show_title = f"{show_details['title']} ({show_details['year']})"
         logger.info(f"Processing TV show request: {show_title} ({show_details['seasons']} seasons)")
         
-        # For now, just return success without processing
         return {
             "status": "success", 
-            "tmdb_id": tmdb_id,
+            "tmdb_id": series_id,
             "request_id": request_id,
             "title": show_title,
             "seasons": show_details['seasons'],
