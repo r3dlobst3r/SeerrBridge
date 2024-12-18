@@ -1258,12 +1258,7 @@ async def jellyseer_webhook(request: Request):
         if payload.media.media_type == "movie":
             return await process_movie_request(payload)
         elif payload.media.media_type == "tv":
-            logger.info(f"TV show request received for {payload.subject}")
-            return {
-                "status": "skipped",
-                "message": "TV show support is currently disabled",
-                "title": payload.subject
-            }
+            return await process_tv_request(payload)
         else:
             logger.error(f"Unsupported media type: {payload.media.media_type}")
             raise HTTPException(status_code=400, detail="Unsupported media type")
@@ -1339,86 +1334,9 @@ def schedule_recheck_movie_requests():
 async def on_close():
     await shutdown_browser()  # Ensure browser is closed when the bot closes
 
-async def search_tv_show(title: str, season: int, episode: int, driver) -> bool:
-    try:
-        # Clean and normalize the TV show title
-        show_title_cleaned = clean_title(title)
-        show_title_normalized = normalize_title(title)
-        
-        logger.info(f"Searching for TV show: {title} S{season:02d}E{episode:02d}")
-        
-        # Navigate to DMM search page
-        driver.get("https://debridmediamanager.com")
-        
-        # Wait for search input and enter show title
-        search_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-        )
-        search_input.clear()
-        search_input.send_keys(title)
-        search_input.send_keys(Keys.RETURN)
-        
-        # Format season and episode pattern (e.g., S01E01)
-        episode_pattern = f"S{season:02d}E{episode:02d}"
-        
-        # Wait for search results and find matching TV show episodes
-        try:
-            show_elements = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.XPATH, f"//a[contains(@href, '/tv/')]"))
-            )
-            
-            for show_element in show_elements:
-                show_title_element = show_element.find_element(By.XPATH, ".//h3")
-                show_title_text = show_title_element.text.strip()
-                
-                # Check if the element contains the correct season and episode
-                if episode_pattern.lower() in show_title_text.lower():
-                    title_match_ratio = fuzz.ratio(
-                        normalize_title(show_title_text.split(episode_pattern)[0]).lower(),
-                        show_title_normalized.lower()
-                    )
-                    
-                    if title_match_ratio >= 69:
-                        logger.info(f"Found matching episode: {show_title_text}")
-                        show_element.click()
-                        
-                        # Process the episode similarly to movies
-                        if await process_tv_episode(driver, title, season, episode):
-                            return True
-            
-            logger.warning(f"No matching episode found for {title} {episode_pattern}")
-            return False
-            
-        except TimeoutException:
-            logger.error(f"Timeout while searching for TV show: {title} {episode_pattern}")
-            return False
-            
-    except Exception as ex:
-        logger.critical(f"Error processing TV show {title} S{season:02d}E{episode:02d}: {ex}")
-        return False
-
-async def process_tv_episode(driver, title: str, season: int, episode: int) -> bool:
-    """
-    Process a specific TV episode in DMM similar to how movies are processed
-    """
-    # Similar to the movie processing logic but adapted for TV episodes
-    try:
-        # Wait for the episode's details page to load
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
-        )
-        
-        # Rest of the processing logic similar to movies
-        # You can reuse much of the existing movie processing logic here
-        return True
-        
-    except Exception as ex:
-        logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
-        return False
-
-def get_show_details_from_tvdb(tvdb_id: str) -> Optional[dict]:
-    """Fetch TV show details from TVDB API"""
-    url = f"https://api.themoviedb.org/3/tv/{tvdb_id}"
+def get_tv_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
+    """Fetch TV show details from TMDB API"""
+    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}"
     params = {
         "api_key": os.getenv('TMDB_API_KEY')
     }
@@ -1429,65 +1347,42 @@ def get_show_details_from_tvdb(tvdb_id: str) -> Optional[dict]:
             data = response.json()
             return {
                 "title": data['name'],
-                "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None
+                "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
+                "seasons": data.get('number_of_seasons', 0)
             }
         else:
-            logger.error(f"TVDB API request failed with status code {response.status_code}")
+            logger.error(f"TMDB TV API request failed with status code {response.status_code}")
             return None
     except Exception as e:
-        logger.error(f"Error fetching show details from TVDB API: {e}")
+        logger.error(f"Error fetching TV show details from TMDB API: {e}")
         return None
 
 async def process_tv_request(payload: WebhookPayload):
     try:
         # Extract TMDB ID and request_id from the payload
-        tvdb_id = payload.media.tvdbId
+        tmdb_id = payload.media.tmdbId
         request_id = payload.request.request_id if hasattr(payload, 'request') else None
             
-        logger.info(f"Processing TV request for TVDB ID {tvdb_id} with request_id {request_id}")
+        logger.info(f"Processing TV request for TMDB ID {tmdb_id} with request_id {request_id}")
         
-        # Get show details from TVDB
-        show_details = get_show_details_from_tvdb(tvdb_id)
+        # Get show details from TMDB
+        show_details = get_tv_details_from_tmdb(tmdb_id)
         if not show_details:
-            logger.error(f"Failed to fetch show details for TVDB ID {tvdb_id}")
-            return {"status": "error", "message": "Failed to fetch show details"}
+            logger.error(f"Failed to fetch TV show details for TMDB ID {tmdb_id}")
+            return {"status": "error", "message": "Failed to fetch TV show details"}
 
         # Format show title with year
         show_title = f"{show_details['title']} ({show_details['year']})"
-        logger.info(f"Processing TV show request: {show_title}")
+        logger.info(f"Processing TV show request: {show_title} ({show_details['seasons']} seasons)")
         
-        try:
-            # Add timeout handling for search_on_debrid
-            confirmation_flag = await asyncio.wait_for(
-                asyncio.to_thread(search_on_debrid, show_title, driver),
-                timeout=60.0  # 60 second timeout
-            )
-            
-            if confirmation_flag and request_id:
-                # Get the media_id using the request_id
-                media_id = get_media_id_from_request(request_id)
-                if media_id:
-                    if mark_completed(media_id, tvdb_id):
-                        logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
-                    else:
-                        logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
-                else:
-                    logger.error(f"Could not find media_id for request_id {request_id}")
-            else:
-                logger.warning(f"TV request {request_id} was not properly confirmed. Skipping marking as completed.")
-                
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout while processing TV show request {show_title}")
-            return {"status": "error", "message": "Request processing timed out"}
-        except Exception as ex:
-            logger.critical(f"Error processing TV show request {show_title}: {ex}")
-                
+        # For now, just return success without processing
         return {
             "status": "success", 
-            "tvdb_id": tvdb_id,
+            "tmdb_id": tmdb_id,
             "request_id": request_id,
             "title": show_title,
-            "message": "Request processed"
+            "seasons": show_details['seasons'],
+            "message": "TV show details retrieved"
         }
         
     except Exception as e:
