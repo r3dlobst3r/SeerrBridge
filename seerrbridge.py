@@ -1250,40 +1250,25 @@ async def get_user_input():
 
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
-async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
-    raw_payload = await request.json()
-    
+async def jellyseer_webhook(request: Request):
     try:
-        payload = WebhookPayload(**raw_payload)
+        payload = WebhookPayload(**await request.json())
         
-        if payload.media.media_type == "tv":
-            # Handle TV show request
-            tvdb_id = payload.media.tvdbId
-            if not tvdb_id:
-                logger.error("TVDB ID is missing in the TV show payload")
-                raise HTTPException(status_code=400, detail="TVDB ID is missing")
-                
-            # Get show details from TVDB API
-            show_details = get_show_details_from_tvdb(tvdb_id)
-            if not show_details:
-                logger.error("Failed to fetch show details from TVDB")
-                raise HTTPException(status_code=500, detail="Failed to fetch show details")
-                
-            # Process each season/episode
-            for season in show_details['seasons']:
-                for episode in season['episodes']:
-                    show_title = f"{show_details['title']} S{season['number']:02d}E{episode['number']:02d}"
-                    background_tasks.add_task(add_request_to_queue, show_title)
-                    
-            return {"status": "success", "show_title": show_details['title']}
-            
-        else:
-            # Existing movie handling code
+        # Handle based on media type
+        if payload.media.media_type == "movie":
             return await process_movie_request(payload)
+        elif payload.media.media_type == "tv":
+            return await process_tv_request(payload)
+        else:
+            logger.error(f"Unsupported media type: {payload.media.media_type}")
+            raise HTTPException(status_code=400, detail="Unsupported media type")
             
     except ValidationError as e:
-        logger.error(f"Payload validation error: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
@@ -1425,6 +1410,84 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
     except Exception as ex:
         logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
         return False
+
+def get_show_details_from_tvdb(tvdb_id: str) -> Optional[dict]:
+    """Fetch TV show details from TVDB API"""
+    url = f"https://api.themoviedb.org/3/tv/{tvdb_id}"
+    params = {
+        "api_key": os.getenv('TMDB_API_KEY')
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "title": data['name'],
+                "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None
+            }
+        else:
+            logger.error(f"TVDB API request failed with status code {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching show details from TVDB API: {e}")
+        return None
+
+async def process_tv_request(payload: WebhookPayload):
+    try:
+        # Extract TMDB ID and request_id from the payload
+        tvdb_id = payload.media.tvdbId
+        request_id = payload.request.request_id if hasattr(payload, 'request') else None
+            
+        logger.info(f"Processing TV request for TVDB ID {tvdb_id} with request_id {request_id}")
+        
+        # Get show details from TVDB
+        show_details = get_show_details_from_tvdb(tvdb_id)
+        if not show_details:
+            logger.error(f"Failed to fetch show details for TVDB ID {tvdb_id}")
+            return {"status": "error", "message": "Failed to fetch show details"}
+
+        # Format show title with year
+        show_title = f"{show_details['title']} ({show_details['year']})"
+        logger.info(f"Processing TV show request: {show_title}")
+        
+        try:
+            # Add timeout handling for search_on_debrid
+            confirmation_flag = await asyncio.wait_for(
+                asyncio.to_thread(search_on_debrid, show_title, driver),
+                timeout=60.0  # 60 second timeout
+            )
+            
+            if confirmation_flag and request_id:
+                # Get the media_id using the request_id
+                media_id = get_media_id_from_request(request_id)
+                if media_id:
+                    if mark_completed(media_id, tvdb_id):
+                        logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
+                    else:
+                        logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
+                else:
+                    logger.error(f"Could not find media_id for request_id {request_id}")
+            else:
+                logger.warning(f"TV request {request_id} was not properly confirmed. Skipping marking as completed.")
+                
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout while processing TV show request {show_title}")
+            return {"status": "error", "message": "Request processing timed out"}
+        except Exception as ex:
+            logger.critical(f"Error processing TV show request {show_title}: {ex}")
+                
+        return {
+            "status": "success", 
+            "tvdb_id": tvdb_id,
+            "request_id": request_id,
+            "title": show_title,
+            "message": "Request processed"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error processing TV show request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Main entry point for running the FastAPI server
 if __name__ == "__main__":
