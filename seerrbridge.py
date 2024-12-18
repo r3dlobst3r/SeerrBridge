@@ -600,17 +600,42 @@ async def process_movie_request(payload: WebhookPayload):
     try:
         # Extract TMDB ID and media_id (if available)
         tmdb_id = payload.media.tmdbId
-        media_id = getattr(payload.media, 'media_id', None)  # Safely get media_id
+        media_id = getattr(payload.media, 'media_id', None)
         
-        if not media_id:
-            # Instead of warning, try to get media_id from another source or proceed without it
-            logger.info(f"Processing request for TMDB ID {tmdb_id} without media_id")
-            # Continue processing...
-        else:
-            logger.info(f"Processing request for TMDB ID {tmdb_id} with media_id {media_id}")
+        logger.info(f"Processing request for TMDB ID {tmdb_id} without media_id")
         
-        # Rest of your processing logic...
-        return {"status": "success", "tmdb_id": tmdb_id}
+        # Get movie details from TMDB
+        movie_details = await get_movie_details(tmdb_id)
+        if not movie_details:
+            logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
+            return {"status": "error", "message": "Failed to fetch movie details"}
+
+        # Add to processing queue
+        movie_title = movie_details.get('title')
+        if movie_title:
+            logger.info(f"Adding movie to queue: {movie_title} (TMDB ID: {tmdb_id})")
+            await add_request_to_queue(movie_title)
+            
+            # Trigger immediate processing
+            try:
+                browser = await get_browser()
+                if browser:
+                    confirmation = await process_movie_in_dmm(browser, movie_title)
+                    if confirmation:
+                        logger.success(f"Successfully processed movie: {movie_title}")
+                    else:
+                        logger.warning(f"Failed to process movie: {movie_title}")
+                else:
+                    logger.error("Browser not available for processing")
+            except Exception as e:
+                logger.error(f"Error during movie processing: {e}")
+                
+        return {
+            "status": "success", 
+            "tmdb_id": tmdb_id,
+            "title": movie_title,
+            "message": "Request added to processing queue"
+        }
         
     except Exception as e:
         logger.error(f"Error processing movie request: {e}")
