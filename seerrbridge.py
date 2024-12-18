@@ -549,11 +549,14 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
     """Fetch movie details directly from TMDB API"""
     url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"
     headers = {
-        "Authorization": f"Bearer {TMDB_API_KEY}"
+        "accept": "application/json"
+    }
+    params = {
+        "api_key": TMDB_API_KEY
     }
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests.get(url, headers=headers, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
             return {
