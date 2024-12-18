@@ -58,7 +58,7 @@ RD_CLIENT_SECRET = os.getenv('RD_CLIENT_SECRET')
 OVERSEERR_BASE = os.getenv('OVERSEERR_BASE')
 OVERSEERR_API_BASE_URL = f"{OVERSEERR_BASE}/api/v1"
 OVERSEERR_API_KEY = os.getenv('OVERSEERR_API_KEY')
-TRAKT_API_KEY = os.getenv('TRAKT_API_KEY')
+TMDB_API_KEY = os.getenv('TMDB_API_KEY')
 HEADLESS_MODE = os.getenv("HEADLESS_MODE", "true").lower() == "true"
 ENABLE_AUTOMATIC_BACKGROUND_TASK = os.getenv("ENABLE_AUTOMATIC_BACKGROUND_TASK", "false").lower() == "true"
 TORRENT_FILTER_REGEX = os.getenv("TORRENT_FILTER_REGEX")
@@ -78,8 +78,8 @@ if not OVERSEERR_API_KEY:
     logger.error("OVERSEERR_API_KEY environment variable is not set.")
     exit(1)
 
-if not TRAKT_API_KEY:
-    logger.error("TRAKT_API_KEY environment variable is not set.")
+if not TMDB_API_KEY:
+    logger.error("TMDB_API_KEY environment variable is not set.")
     exit(1)
 
 # Global driver variable to hold the Selenium WebDriver
@@ -545,49 +545,26 @@ TRAKT_RATE_LIMIT_PERIOD = 5 * 60  # 5 minutes in seconds
 trakt_api_calls = 0
 last_reset_time = time.time()
 
-def get_movie_details_from_trakt(tmdb_id: str) -> Optional[dict]:
-    global trakt_api_calls, last_reset_time
-
-    # Check if the rate limit period has elapsed
-    current_time = time.time()
-    if current_time - last_reset_time >= TRAKT_RATE_LIMIT_PERIOD:
-        trakt_api_calls = 0
-        last_reset_time = current_time
-
-    # Check if we have reached the rate limit
-    if trakt_api_calls >= TRAKT_RATE_LIMIT:
-        logger.warning("Trakt API rate limit reached. Waiting for the next period.")
-        time.sleep(TRAKT_RATE_LIMIT_PERIOD - (current_time - last_reset_time))
-        trakt_api_calls = 0
-        last_reset_time = time.time()
-
-    url = f"https://api.trakt.tv/search/tmdb/{tmdb_id}?type=movie"
+def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
+    """Fetch movie details directly from TMDB API"""
+    url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"
     headers = {
-        "Content-type": "application/json",
-        "trakt-api-key": TRAKT_API_KEY,
-        "trakt-api-version": "2"
+        "Authorization": f"Bearer {TMDB_API_KEY}"
     }
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        trakt_api_calls += 1
-        
         if response.status_code == 200:
             data = response.json()
-            if data and isinstance(data, list) and data:
-                movie_info = data[0]['movie']
-                return {
-                    "title": movie_info['title'],
-                    "year": movie_info['year']
-                }
-            else:
-                logger.error("Movie details for ID not found in Trakt API response.")
-                return None
+            return {
+                "title": data['title'],
+                "year": datetime.strptime(data['release_date'], '%Y-%m-%d').year if data.get('release_date') else None
+            }
         else:
-            logger.error(f"Trakt API request failed with status code {response.status_code}")
+            logger.error(f"TMDB API request failed with status code {response.status_code}")
             return None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error fetching movie details from Trakt API: {e}")
+    except Exception as e:
+        logger.error(f"Error fetching movie details from TMDB API: {e}")
         return None
 
 ### Process the fetched messages (newest to oldest)
@@ -602,7 +579,7 @@ async def process_movie_requests():
         media_id = request['media']['id']
         logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id}")
         
-        movie_details = get_movie_details_from_trakt(tmdb_id)
+        movie_details = get_movie_details_from_tmdb(tmdb_id)
         if not movie_details:
             logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
             continue
