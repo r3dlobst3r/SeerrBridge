@@ -92,96 +92,25 @@ request_queue = Queue(maxsize=500)
 processing_task = None  # To track the current processing task
 
 class MediaInfo(BaseModel):
-    # 1. First: model configuration
-    model_config = {
-        "populate_by_name": True,
-        "extra": "allow",
-        "validate_assignment": True,
-        "str_strip_whitespace": True,
-        "validate_default": True,
-        "from_attributes": True
-    }
-
-    # 2. Second: field definitions
     media_type: str
-    tmdbId: int
-    media_id: Optional[int] = None
-    id: Optional[int] = None
-    status: Optional[Union[int, str]] = None
-    status4k: Optional[Union[int, str]] = None
-    createdAt: Optional[str] = None
-    updatedAt: Optional[str] = None
-
-    # 3. Third: validators
-    @field_validator('*')
-    @classmethod
-    def empty_str_to_none(cls, v):
-        if isinstance(v, str) and not v.strip():
-            return None
-        return v
-
-    @field_validator('status', 'status4k')
-    @classmethod
-    def validate_status(cls, v):
-        if v is None:
-            return v
-        if isinstance(v, int):
-            return v
-        if isinstance(v, str):
-            try:
-                return int(v)
-            except ValueError:
-                return v
-        return v
-
-class SeasonInfo(BaseModel):
-    seasonNumber: int
-    episodeCount: int
-    episodes: List[int]  # List of episode numbers to process
-
-class TVShowRequest(BaseModel):
-    title: str
-    year: Optional[int]
-    seasons: List[SeasonInfo]
+    tmdbId: str
+    tvdbId: Optional[str] = None
+    status: str
 
 class RequestInfo(BaseModel):
     request_id: str
-    requestedBy_email: str
-    requestedBy_username: str
-    requestedBy_avatar: str
-    requestedBy_settings_discordId: Optional[str] = None  # Make optional
-    requestedBy_settings_telegramChatId: Optional[str] = None  # Make optional
+    requestedBy_email: Optional[str] = None
+    requestedBy_username: Optional[str] = None
+    requestedBy_avatar: Optional[str] = None
 
-class IssueInfo(BaseModel):
-    issue_id: str
-    issue_type: str
-    issue_status: str
-    reportedBy_email: str
-    reportedBy_username: str
-    reportedBy_avatar: str
-    reportedBy_settings_discordId: str
-    reportedBy_settings_telegramChatId: str
-
-class CommentInfo(BaseModel):
-    comment_message: str
-    commentedBy_email: str
-    commentedBy_username: str
-    commentedBy_avatar: str
-    commentedBy_settings_discordId: str
-    commentedBy_settings_telegramChatId: str
+class ExtraInfo(BaseModel):
+    name: str
+    value: str
 
 class WebhookPayload(BaseModel):
-    model_config = {
-        "populate_by_name": True,
-        "extra": "allow",
-        "from_attributes": True
-    }
-
     media: MediaInfo
     request: RequestInfo
-    issue: Optional[IssueInfo] = None  # Allow issue to be None
-    comment: Optional[CommentInfo] = None  # Allow comment to be None
-    extra: List[Dict[str, Any]] = []
+    extra: Optional[List[ExtraInfo]] = None
 
 def refresh_access_token():
     global RD_REFRESH_TOKEN, RD_ACCESS_TOKEN, driver
@@ -447,18 +376,26 @@ async def process_requests():
             logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
             
             if media_type == 'tv':
-                # Create a WebhookPayload-like object for TV shows
+                # Create properly structured payload for TV shows
                 payload = WebhookPayload(
-                    media=SimpleNamespace(
+                    media=MediaInfo(
                         media_type='tv',
-                        tmdbId=tmdb_id,
-                        tvdbId=request['media'].get('tvdbId'),
+                        tmdbId=str(tmdb_id),
+                        tvdbId=str(request['media'].get('tvdbId')),
                         status='PENDING'
                     ),
-                    request=SimpleNamespace(
-                        request_id=str(request.get('id'))
+                    request=RequestInfo(
+                        request_id=str(request.get('id')),
+                        requestedBy_email=request.get('requestedBy', {}).get('email'),
+                        requestedBy_username=request.get('requestedBy', {}).get('username'),
+                        requestedBy_avatar=request.get('requestedBy', {}).get('avatar')
                     ),
-                    extra=[{'name': 'Requested Seasons', 'value': ', '.join(str(s['seasonNumber']) for s in request.get('seasons', []))}]
+                    extra=[
+                        ExtraInfo(
+                            name='Requested Seasons',
+                            value=', '.join(str(s['seasonNumber']) for s in request.get('seasons', []))
+                        )
+                    ] if request.get('seasons') else None
                 )
                 await process_tv_request(payload)
             else:
