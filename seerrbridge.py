@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -666,38 +666,49 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
             return False
         
         overseerr_url = overseerr_url.rstrip('/')
-        
-        if not request_id:
-            logger.error("Request ID is required for marking TV shows as available")
-            return False
-            
-        mark_url = f"{overseerr_url}/api/v1/request/{request_id}"
         headers = {
             "X-Api-Key": overseerr_api_key,
             "Content-Type": "application/json"
         }
-        
-        # Build the payload with correct status code (3 = AVAILABLE)
-        data = {
-            "mediaType": "tv",
-            "status": 3,  # Changed from 1 to 3 for AVAILABLE
+
+        # First, update the media status
+        media_url = f"{overseerr_url}/api/v1/media/{media_id}"
+        media_data = {
+            "status": 3,  # AVAILABLE
+            "mediaType": "tv"
         }
         
-        if seasons:
-            data["seasons"] = seasons
-            
-        logger.debug(f"Sending PUT request to: {mark_url}")
-        logger.debug(f"With payload: {data}")
+        logger.debug(f"Sending PUT request to update media status: {media_url}")
+        media_response = requests.put(media_url, headers=headers, json=media_data)
         
-        response = requests.put(mark_url, headers=headers, json=data)
-        
-        if response.status_code == 200:
-            logger.success(f"Successfully marked request {request_id} as available")
-            return True
-        else:
-            logger.error(f"Failed to mark media as available: {response.status_code}")
-            logger.debug(f"Response content: {response.text}")
+        if media_response.status_code != 200:
+            logger.error(f"Failed to update media status: {media_response.status_code}")
+            logger.debug(f"Response content: {media_response.text}")
             return False
+
+        # Then, update the request status
+        if request_id:
+            request_url = f"{overseerr_url}/api/v1/request/{request_id}"
+            request_data = {
+                "mediaType": "tv",
+                "status": 3,  # AVAILABLE
+            }
+            
+            if seasons:
+                request_data["seasons"] = seasons
+                
+            logger.debug(f"Sending PUT request to update request status: {request_url}")
+            logger.debug(f"With payload: {request_data}")
+            
+            request_response = requests.put(request_url, headers=headers, json=request_data)
+            
+            if request_response.status_code != 200:
+                logger.error(f"Failed to update request status: {request_response.status_code}")
+                logger.debug(f"Response content: {request_response.text}")
+                return False
+        
+        logger.success(f"Successfully marked media {media_id} and request {request_id} as available")
+        return True
             
     except Exception as e:
         logger.error(f"Error marking media as available: {e}")
