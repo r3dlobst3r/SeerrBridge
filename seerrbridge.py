@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -667,7 +667,6 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
         
         overseerr_url = overseerr_url.rstrip('/')
         
-        # Use request_id instead of media_id for the endpoint
         if not request_id:
             logger.error("Request ID is required for marking TV shows as available")
             return False
@@ -678,13 +677,12 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
             "Content-Type": "application/json"
         }
         
-        # Build the payload
+        # Build the payload with correct status code (3 = AVAILABLE)
         data = {
             "mediaType": "tv",
-            "status": 1,  # 1 = available
+            "status": 3,  # Changed from 1 to 3 for AVAILABLE
         }
         
-        # Add seasons if provided
         if seasons:
             data["seasons"] = seasons
             
