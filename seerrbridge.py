@@ -1456,19 +1456,15 @@ async def update_overseerr_status(request_data, status, message=None):
         # Extract IDs from the request data
         request_id = request_data.get('id')
         media_type = request_data.get('media', {}).get('mediaType', 'tv')
-        media_id = request_data.get('media', {}).get('id') or request_data.get('media', {}).get('tmdbId')
         
-        logger.info(f"Updating Overseerr status - Request ID: {request_id}, Media ID: {media_id}, Status: {status}")
+        logger.info(f"Updating Overseerr status - Request ID: {request_id}, Status: {status}")
         
-        if not media_id:
-            logger.error("Missing media_id for Overseerr status update")
+        if not request_id:
+            logger.error("Missing request_id for Overseerr status update")
             return
         
-        # Construct the URL for the media update
-        url = f"{OVERSEERR_BASE}/api/v1/media/{media_id}"
-        if request_id:
-            url = f"{OVERSEERR_BASE}/api/v1/request/{request_id}"
-            
+        # Use the request endpoint
+        url = f"{OVERSEERR_BASE}/api/v1/request/{request_id}"
         headers = {"X-Api-Key": OVERSEERR_API_KEY}
         
         status_map = {
@@ -1477,6 +1473,7 @@ async def update_overseerr_status(request_data, status, message=None):
             "failed": 4        # Failed
         }
         
+        # Construct payload according to API specification
         data = {
             "status": status_map.get(status, 4),
             "mediaType": media_type
