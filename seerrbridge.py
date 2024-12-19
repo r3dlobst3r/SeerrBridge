@@ -1269,7 +1269,7 @@ async def jellyseer_webhook(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 async def process_tv_request(payload: WebhookPayload):
-    """Process TV show requests using IMDB ID"""
+    """Process TV show requests using IMDB ID with tt prefix"""
     try:
         tmdb_id = payload.media.tmdbId
         request_id = payload.request.request_id if hasattr(payload, 'request') else None
@@ -1280,10 +1280,10 @@ async def process_tv_request(payload: WebhookPayload):
             logger.error(f"Failed to get IMDB ID for TMDB ID {tmdb_id}")
             return {"status": "error", "message": "Failed to get IMDB ID"}
             
-        imdb_id = show_details['imdb_id']
+        imdb_id = show_details['imdb_id']  # This will now include the 'tt' prefix
         show_title = show_details['title']
         
-        # Navigate directly to show page using IMDB ID
+        # Navigate directly to show page using IMDB ID with tt prefix
         show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
         logger.info(f"Navigating to TV show URL: {show_url}")
         
@@ -1445,7 +1445,7 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
         return False
 
 async def get_show_details_from_tmdb(tmdb_id: int) -> Optional[dict]:
-    """Fetch TV show details from TMDB API including IMDB ID"""
+    """Fetch TV show details from TMDB API including IMDB ID with tt prefix"""
     url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
     
     try:
@@ -1453,10 +1453,19 @@ async def get_show_details_from_tmdb(tmdb_id: int) -> Optional[dict]:
             async with session.get(url) as response:
                 if response.status == 200:
                     data = await response.json()
+                    imdb_id = data.get('external_ids', {}).get('imdb_id')
+                    if not imdb_id:
+                        logger.error(f"No IMDB ID found for TMDB ID {tmdb_id}")
+                        return None
+                        
+                    # Ensure IMDB ID has 'tt' prefix
+                    if not imdb_id.startswith('tt'):
+                        imdb_id = f"tt{imdb_id}"
+                        
                     return {
                         "title": data['name'],
                         "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
-                        "imdb_id": data.get('external_ids', {}).get('imdb_id')
+                        "imdb_id": imdb_id
                     }
                 else:
                     logger.error(f"TMDB API request failed with status code {response.status}")
