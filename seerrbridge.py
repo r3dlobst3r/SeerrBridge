@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -659,17 +659,21 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
     """Mark a media request as available in Overseerr."""
     try:
         # Get environment variables
-        overseerr_url = os.getenv('OVERSEERR_URL')
+        overseerr_url = os.getenv('OVERSEERR_BASE')
         overseerr_api_key = os.getenv('OVERSEERR_API_KEY')
         
         if not overseerr_url or not overseerr_api_key:
-            logger.error("Missing required environment variables: OVERSEERR_URL or OVERSEERR_API_KEY")
+            logger.error("Missing required environment variables: OVERSEERR_BASE or OVERSEERR_API_KEY")
             return False
+        
+        # Remove trailing slash if present
+        overseerr_url = overseerr_url.rstrip('/')
         
         # Get media details from Overseerr
         media_url = f"{overseerr_url}/api/v1/media/{media_id}"
         headers = {"X-Api-Key": overseerr_api_key}
         
+        logger.debug(f"Sending GET request to: {media_url}")
         response = requests.get(media_url, headers=headers)
         if response.status_code != 200:
             logger.error(f"Failed to get media details from Overseerr: {response.status_code}")
@@ -687,6 +691,7 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
             
         # Mark as available
         mark_url = f"{overseerr_url}/api/v1/media/{media_id}/available"
+        logger.debug(f"Sending POST request to: {mark_url}")
         response = requests.post(mark_url, headers=headers)
         
         if response.status_code == 200:
@@ -694,6 +699,7 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
             return True
         else:
             logger.error(f"Failed to mark media as available: {response.status_code}")
+            logger.debug(f"Response content: {response.text}")
             return False
             
     except Exception as e:
