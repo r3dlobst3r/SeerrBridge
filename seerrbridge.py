@@ -1281,16 +1281,29 @@ async def get_user_input():
         return 'n'
 
 ### Webhook Endpoint ###
-@app.post("/jellyseer-webhook/movie")
-async def movie_webhook(request: Request):
-    """Handle movie requests"""
+@app.post("/jellyseer-webhook")
+@app.post("/jellyseer-webhook/")
+async def webhook_root(request: Request):
+    """Root webhook handler that routes based on media type"""
     try:
         data = await request.json()
-        logger.info(f"Received movie webhook for TMDB ID: {data.get('media', {}).get('tmdbId')}")
-        payload = WebhookPayload(**data)
-        return await process_movie_request(payload)
+        media = data.get('media', {})
+        media_type = media.get('mediaType')
+        tmdb_id = media.get('tmdbId')
+        tvdb_id = media.get('tvdbId')
+
+        logger.info(f"Received webhook - Type: {media_type}, TMDB ID: {tmdb_id}, TVDB ID: {tvdb_id}")
+
+        # Route based on presence of tvdbId or mediaType
+        if tvdb_id or media_type == "tv":
+            logger.info(f"Routing TV show request to tv_webhook handler")
+            return await tv_webhook(request)
+        else:
+            logger.info(f"Routing movie request to movie_webhook handler")
+            return await movie_webhook(request)
+
     except Exception as e:
-        logger.error(f"Error processing movie webhook: {e}")
+        logger.error(f"Error in webhook_root: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/jellyseer-webhook/tv")
@@ -1339,6 +1352,18 @@ async def tv_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error processing TV show: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+@app.post("/jellyseer-webhook/movie")
+async def movie_webhook(request: Request):
+    """Handle movie requests"""
+    try:
+        data = await request.json()
+        logger.info(f"Received movie webhook for TMDB ID: {data.get('media', {}).get('tmdbId')}")
+        payload = WebhookPayload(**data)
+        return await process_movie_request(payload)
+    except Exception as e:
+        logger.error(f"Error processing movie webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
     """Get IMDB ID for TV show from TMDB API"""
