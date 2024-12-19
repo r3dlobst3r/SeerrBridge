@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -716,20 +716,25 @@ def prioritize_buttons_in_box(result_box):
 ### Search Function to Reuse Browser
 def get_imdb_id(tmdb_id: str) -> Optional[str]:
     """Get IMDB ID from TMDB ID using TMDB API."""
-    url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/external_ids"
+    url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"  # Changed to main movie endpoint
     params = {
-        "api_key": os.getenv('TMDB_API_KEY')
+        "api_key": os.getenv('TMDB_API_KEY'),
+        "append_to_response": "external_ids"
     }
     
     try:
         response = requests.get(url, params=params)
         if response.status_code == 200:
             data = response.json()
-            imdb_id = data.get('imdb_id')
-            logger.info(f"Found IMDB ID {imdb_id} for TMDB ID {tmdb_id}")
-            return imdb_id
+            imdb_id = data.get('external_ids', {}).get('imdb_id') or data.get('imdb_id')
+            if imdb_id:
+                logger.info(f"Found IMDB ID {imdb_id} for TMDB ID {tmdb_id}")
+                return imdb_id
+            else:
+                logger.warning(f"No IMDB ID found in response for TMDB ID {tmdb_id}")
+                return None
         else:
-            logger.error(f"Failed to get IMDB ID. Status code: {response.status_code}")
+            logger.error(f"Failed to get IMDB ID. Status code: {response.status_code}, Response: {response.text}")
             return None
     except Exception as e:
         logger.error(f"Error getting IMDB ID: {e}")
@@ -744,57 +749,75 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
             # TV show logic here
             pass
         else:
-            # Get IMDB ID first
-            imdb_id = get_imdb_id(series_id) if series_id else None
-            if imdb_id:
-                # Use direct movie URL
-                movie_url = f"https://debridmediamanager.com/movie/{imdb_id}"
-                logger.info(f"Using direct movie URL: {movie_url}")
-                driver.get(movie_url)
-                
-                # Wait for and click Instant RD button
-                try:
-                    logger.debug("Looking for Instant RD button...")
-                    time.sleep(2)  # Give page time to load
-                    buttons = WebDriverWait(driver, 10).until(
-                        EC.presence_of_all_elements_located((By.TAG_NAME, "button"))
-                    )
+            try:
+                # Get IMDB ID first
+                imdb_id = get_imdb_id(series_id) if series_id else None
+                if imdb_id:
+                    # Use direct movie URL
+                    movie_url = f"https://debridmediamanager.com/movie/{imdb_id}"
+                    logger.info(f"Using direct movie URL: {movie_url}")
+                    driver.get(movie_url)
                     
-                    for button in buttons:
-                        button_text = button.text
-                        logger.debug(f"Found button with text: {button_text}")
-                        if "Instant RD" in button_text:
-                            logger.info("Found Instant RD button, clicking...")
-                            button.click()
-                            return True
-                            
-                    logger.warning("No Instant RD button found")
-                    return False
+                    # Wait for page load
+                    time.sleep(3)
                     
-                except Exception as e:
-                    logger.error(f"Error finding/clicking Instant RD button: {e}")
-                    return False
-            else:
-                # Fallback to search if no IMDB ID found
-                logger.warning(f"No IMDB ID found for {title}, falling back to search")
-                search_url = "https://debridmediamanager.com/search"
-                driver.get(search_url)
-                
-                search_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-                )
-                search_input.clear()
-                search_input.send_keys(title)
-                search_input.send_keys(Keys.RETURN)
-                
-                time.sleep(2)
-                
-                buttons = driver.find_elements(By.TAG_NAME, "button")
-                for button in buttons:
-                    if "Instant RD" in button.text:
-                        button.click()
-                        return True
-                
+                    # Look for Instant RD button
+                    try:
+                        logger.debug("Looking for Instant RD button...")
+                        buttons = driver.find_elements(By.TAG_NAME, "button")
+                        logger.debug(f"Found {len(buttons)} buttons")
+                        
+                        for button in buttons:
+                            try:
+                                button_text = button.text
+                                logger.debug(f"Found button with text: '{button_text}'")
+                                if "Instant RD" in button_text:
+                                    logger.info("Found Instant RD button, clicking...")
+                                    driver.execute_script("arguments[0].click();", button)
+                                    logger.success("Clicked Instant RD button")
+                                    return True
+                            except Exception as e:
+                                logger.error(f"Error processing button: {e}")
+                                continue
+                                
+                        logger.warning("No Instant RD button found")
+                        return False
+                        
+                    except Exception as e:
+                        logger.error(f"Error finding/clicking buttons: {e}")
+                        return False
+                else:
+                    # Fallback to search
+                    logger.warning(f"No IMDB ID found for {title}, falling back to search")
+                    search_url = "https://debridmediamanager.com/search"
+                    driver.get(search_url)
+                    time.sleep(2)
+                    
+                    try:
+                        search_input = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+                        )
+                        search_input.clear()
+                        search_input.send_keys(title)
+                        search_input.send_keys(Keys.RETURN)
+                        
+                        time.sleep(3)
+                        
+                        buttons = driver.find_elements(By.TAG_NAME, "button")
+                        for button in buttons:
+                            button_text = button.text
+                            logger.debug(f"Found button with text: '{button_text}'")
+                            if "Instant RD" in button_text:
+                                driver.execute_script("arguments[0].click();", button)
+                                return True
+                        
+                        return False
+                    except Exception as e:
+                        logger.error(f"Error during search: {e}")
+                        return False
+                        
+            except Exception as e:
+                logger.error(f"Error processing movie: {e}")
                 return False
                 
     except Exception as e:
