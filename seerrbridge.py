@@ -1309,48 +1309,42 @@ async def webhook_root(request: Request):
 async def process_season_box(result_box, season, box_number):
     """Process a single result box, prioritizing Instant RD"""
     try:
-        # First check if this box has RD (0%) - if so, skip it
-        try:
-            rd_zero = result_box.find_element(By.XPATH, ".//button[contains(@class, 'border-red-500') and contains(text(), 'RD (0%)')]")
-            logger.info(f"Skipping box {box_number} - has RD (0%)")
-            return False
-        except NoSuchElementException:
-            pass
+        # Debug: Print all buttons in the box
+        all_buttons = result_box.find_elements(By.TAG_NAME, "button")
+        logger.debug(f"Box {box_number} buttons found: {len(all_buttons)}")
+        for btn in all_buttons:
+            logger.debug(f"Button text: '{btn.text}', class: '{btn.get_attribute('class')}'")
 
-        # Then check for existing RD (100%) button
+        # First try to find Instant RD button by its exact structure
         try:
-            rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'border-red-500') and contains(text(), 'RD (100%)')]")
-            logger.info(f"Found existing RD (100%) button in box {box_number}")
-            return True
-        except NoSuchElementException:
-            pass
+            instant_rd = result_box.find_element(
+                By.XPATH,
+                ".//button[contains(@class, 'border-green-500') and contains(@class, 'bg-green-900/30')]//b[text()='Instant RD']/.."
+            )
+            logger.info(f"Found Instant RD button in box {box_number}")
+            
+            # Click the Instant RD button
+            initial_state = instant_rd.get_attribute("class")
+            instant_rd.click()
+            logger.success(f"Clicked Instant RD button in box {box_number}")
+            
+            # Wait for button state change
+            try:
+                WebDriverWait(result_box, 10).until(
+                    lambda x: instant_rd.get_attribute("class") != initial_state
+                )
+                return True
+            except TimeoutException:
+                logger.warning(f"Button state didn't change after clicking in box {box_number}")
+                return False
 
-        # Use the same prioritize_buttons_in_box function that works for movies
+        except NoSuchElementException:
+            logger.debug(f"No Instant RD button found in box {box_number} with exact structure")
+
+        # If no Instant RD button found, fall back to prioritize_buttons_in_box
         if prioritize_buttons_in_box(result_box):
             logger.info(f"Successfully handled buttons in box {box_number}")
-            
-            # Check the result after clicking
-            try:
-                rd_button = WebDriverWait(result_box, 10).until(
-                    EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (')]"))
-                )
-                rd_button_text = rd_button.text
-                logger.info(f"RD button text after clicking: {rd_button_text}")
-
-                # If the button is now "RD (0%)", undo the click
-                if "RD (0%)" in rd_button_text:
-                    logger.warning(f"RD (0%) button detected after clicking in box {box_number}. Undoing the click.")
-                    rd_button.click()  # Undo the click
-                    return False
-
-                # If it's "RD (100%)", we're successful
-                if "RD (100%)" in rd_button_text:
-                    logger.success(f"RD (100%) button detected in box {box_number}. Success!")
-                    return True
-
-            except TimeoutException:
-                logger.warning(f"Timeout waiting for RD button status change in box {box_number}")
-                return False
+            return True
 
         return False
 
