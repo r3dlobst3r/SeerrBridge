@@ -749,31 +749,68 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
             # TV show logic here
             pass
         else:
-            # Original working movie logic
-            search_url = "https://debridmediamanager.com/search"
-            driver.get(search_url)
-            
-            search_input = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-            )
-            search_input.clear()
-            search_input.send_keys(title)
-            search_input.send_keys(Keys.RETURN)
-            
-            time.sleep(2)
-            
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            for button in buttons:
-                if "Instant RD" in button.text:
-                    button.click()
-                    logger.info("Clicked Instant RD button for movie")
-                    return True
-            
-            logger.warning("No Instant RD button found")
-            return False
+            # Movie logic with explicit waits
+            try:
+                search_url = "https://debridmediamanager.com/search"
+                driver.get(search_url)
                 
-    except Exception as e:
-        logger.error(f"Error in search_on_debrid: {str(e)}")
+                # Wait for page load
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                
+                # Wait for and find search input
+                search_input = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='search']"))
+                )
+                
+                # Clear and enter search text
+                search_input.clear()
+                search_input.send_keys(title)
+                search_input.send_keys(Keys.RETURN)
+                
+                # Wait for search results
+                time.sleep(2)
+                
+                # Wait for any button to appear
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "button"))
+                )
+                
+                # Find all buttons
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                logger.debug(f"Found {len(buttons)} buttons")
+                
+                # Look for Instant RD button
+                for button in buttons:
+                    try:
+                        button_text = button.text
+                        logger.debug(f"Button text: {button_text}")
+                        if "Instant RD" in button_text:
+                            # Try regular click first
+                            try:
+                                button.click()
+                            except:
+                                # Fallback to JavaScript click
+                                driver.execute_script("arguments[0].click();", button)
+                            logger.info("Clicked Instant RD button for movie")
+                            return True
+                    except Exception as button_error:
+                        logger.error(f"Error with button: {button_error}")
+                        continue
+                
+                logger.warning("No Instant RD button found")
+                return False
+                
+            except TimeoutException as te:
+                logger.error(f"Timeout waiting for element: {te}")
+                return False
+            except Exception as inner_error:
+                logger.error(f"Error during movie search: {inner_error}")
+                return False
+                
+    except Exception as outer_error:
+        logger.error(f"Error in search_on_debrid: {str(outer_error)}")
         return False
 
 async def get_user_input():
