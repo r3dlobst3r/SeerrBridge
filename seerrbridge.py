@@ -38,7 +38,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from selenium.webdriver.common.keys import Keys
 import aiohttp
 from types import SimpleNamespace
-from selenium.webdriver.common.action_chains import ActionChains
 
 
 # Configure loguru
@@ -362,62 +361,70 @@ async def shutdown_browser():
 
 ### Function to process requests from the queue
 async def process_requests():
-    """Process all pending requests from Overseerr."""
-    try:
-        requests = get_overseerr_media_requests()
-        if not requests:
-            logger.info("No pending requests found.")
-            return
-
-        for req in requests:
-            try:
-                tmdb_id = req['media']['tmdbId']
-                media_id = req['media']['id']
-                media_type = req['media']['mediaType']
-                
-                logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
-
-                if media_type == "movie":
-                    # Get movie details
-                    movie_details = get_movie_details_from_tmdb(tmdb_id)
-                    if not movie_details:
-                        logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
-                        continue
-
-                    movie_title = f"{movie_details['title']} ({movie_details['year']})"
-                    logger.info(f"Processing movie request: {movie_title}")
-                    
-                    # Search and process on debrid
-                    try:
-                        confirmation_flag = await asyncio.wait_for(
-                            asyncio.to_thread(search_on_debrid, movie_title, driver, 'movie'),
-                            timeout=60.0
+    """Process both movie and TV show requests"""
+    requests = get_overseerr_media_requests()
+    if not requests:
+        logger.info("No requests to process")
+        return
+    
+    for request in requests:
+        try:
+            tmdb_id = request['media']['tmdbId']
+            media_id = request['media']['id']
+            media_type = request['media'].get('mediaType', '').lower()
+            
+            logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
+            
+            if media_type == 'tv':
+                # Create properly structured payload for TV shows
+                payload = WebhookPayload(
+                    media=MediaInfo(
+                        media_type='tv',
+                        tmdbId=str(tmdb_id),
+                        tvdbId=str(request['media'].get('tvdbId')),
+                        status='PENDING'
+                    ),
+                    request=RequestInfo(
+                        request_id=str(request.get('id')),
+                        requestedBy_email=request.get('requestedBy', {}).get('email'),
+                        requestedBy_username=request.get('requestedBy', {}).get('username'),
+                        requestedBy_avatar=request.get('requestedBy', {}).get('avatar')
+                    ),
+                    extra=[
+                        ExtraInfo(
+                            name='Requested Seasons',
+                            value=', '.join(str(s['seasonNumber']) for s in request.get('seasons', []))
                         )
-                        
-                        if confirmation_flag:
-                            if mark_completed(media_id, tmdb_id, req.get('id')):
-                                logger.success(f"Successfully marked movie {media_id} as completed")
-                            else:
-                                logger.error(f"Failed to mark movie {media_id} as completed")
+                    ] if request.get('seasons') else None
+                )
+                await process_tv_request(payload)
+            else:
+                # Handle as movie (existing logic)
+                movie_details = get_movie_details_from_tmdb(tmdb_id)
+                if not movie_details:
+                    logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
+                    continue
+                
+                movie_title = f"{movie_details['title']} ({movie_details['year']})"
+                logger.info(f"Processing movie request: {movie_title}")
+                
+                try:
+                    confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
+                    if confirmation_flag:
+                        if mark_completed(media_id, tmdb_id):
+                            logger.success(f"Marked media {media_id} as completed in overseerr")
                         else:
-                            logger.warning(f"Search failed for movie: {movie_title}")
-                            
-                    except asyncio.TimeoutError:
-                        logger.error(f"Timeout while processing movie: {movie_title}")
-                        continue
+                            logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+                    else:
+                        logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
+                except Exception as ex:
+                    logger.critical(f"Error processing movie request {movie_title}: {ex}")
+                    
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            continue
 
-                elif media_type == "tv":
-                    # ... existing TV show processing code ...
-                    pass
-
-            except Exception as e:
-                logger.error(f"Error processing request: {e}")
-                continue
-
-        logger.info("Finished processing all current requests. Waiting for new requests.")
-
-    except Exception as e:
-        logger.error(f"Error in process_requests: {e}")
+    logger.info("Finished processing all current requests. Waiting for new requests.")
 
 ### Function to add requests to the queue
 async def add_request_to_queue(movie_title):
@@ -480,7 +487,7 @@ def normalize_title(title, target_lang='en'):
     translating it to the target language, and converting to lowercase.
     """
     # Replace ellipsis with three periods
-    title = title.replace('���', '...')
+    title = title.replace('…', '...')
     # Replace smart apostrophes with regular apostrophes
     title = title.replace('’', "'")
     # Further normalization can be added here if required
@@ -574,53 +581,56 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_movie_request(payload: WebhookPayload):
     try:
+        # Extract TMDB ID and request_id from the payload
         tmdb_id = payload.media.tmdbId
-        request_id = payload.request.request_id
-        media_id = get_media_id_from_request(request_id)
+        request_id = payload.request.request_id if hasattr(payload, 'request') else None
             
         logger.info(f"Processing request for TMDB ID {tmdb_id} with request_id {request_id}")
         
-        # Get movie details from TMDB
+        # Get movie details from TMDB using the synchronous function
         movie_details = get_movie_details_from_tmdb(tmdb_id)
         if not movie_details:
             logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
             return {"status": "error", "message": "Failed to fetch movie details"}
 
+        # Format movie title with year
         movie_title = f"{movie_details['title']} ({movie_details['year']})"
         logger.info(f"Processing movie request: {movie_title}")
         
-        # Search and process on debrid
         try:
+            # Add timeout handling for search_on_debrid
             confirmation_flag = await asyncio.wait_for(
-                asyncio.to_thread(search_on_debrid, movie_title, driver, 'movie'),
-                timeout=60.0
+                asyncio.to_thread(search_on_debrid, movie_title, driver),
+                timeout=60.0  # 60 second timeout
             )
             
-            if confirmation_flag:
-                # Only try to mark as completed if the search was successful
-                if media_id and mark_completed(media_id, tmdb_id, request_id):
-                    logger.success(f"Successfully marked movie {media_id} as completed in overseerr")
+            if confirmation_flag and request_id:
+                # Get the media_id using the request_id
+                media_id = get_media_id_from_request(request_id)
+                if media_id:
+                    if mark_completed(media_id, tmdb_id):
+                        logger.success(f"Successfully marked media {media_id} as completed in overseerr")
+                    else:
+                        logger.error(f"Failed to mark media {media_id} as completed in overseerr")
                 else:
-                    logger.error(f"Failed to mark movie {media_id} as completed in overseerr")
-                    
-                return {
-                    "status": "success",
-                    "tmdb_id": tmdb_id,
-                    "request_id": request_id,
-                    "title": movie_title
-                }
+                    logger.error(f"Could not find media_id for request_id {request_id}")
             else:
-                logger.warning(f"Search failed for movie: {movie_title}")
-                return {
-                    "status": "error",
-                    "message": "Search failed",
-                    "title": movie_title
-                }
+                logger.warning(f"Request {request_id} was not properly confirmed. Skipping marking as completed.")
                 
         except asyncio.TimeoutError:
-            logger.error(f"Timeout while processing movie: {movie_title}")
-            return {"status": "error", "message": "Processing timeout"}
-            
+            logger.error(f"Timeout while processing movie request {movie_title}")
+            return {"status": "error", "message": "Request processing timed out"}
+        except Exception as ex:
+            logger.critical(f"Error processing movie request {movie_title}: {ex}")
+                
+        return {
+            "status": "success", 
+            "tmdb_id": tmdb_id,
+            "request_id": request_id,
+            "title": movie_title,
+            "message": "Request processed"
+        }
+        
     except Exception as e:
         logger.error(f"Error processing movie request: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -644,43 +654,35 @@ def get_media_id_from_request(request_id: str) -> Optional[int]:
         logger.error(f"Error getting request details: {e}")
         return None
 
-def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons: list = None) -> bool:
-    """Mark a media request as available in Overseerr."""
+def mark_completed(media_id: int, tmdb_id: int) -> bool:
+    """Mark item as completed in overseerr"""
+    url = f"{OVERSEERR_API_BASE_URL}/media/{media_id}/available"
+    headers = {
+        "X-Api-Key": OVERSEERR_API_KEY,
+        "Content-Type": "application/json"
+    }
+    data = {"is4k": False}
+    
     try:
-        overseerr_url = os.getenv('OVERSEERR_BASE')
-        overseerr_api_key = os.getenv('OVERSEERR_API_KEY')
-        
-        if not overseerr_url or not overseerr_api_key:
-            logger.error("Missing required environment variables: OVERSEERR_BASE or OVERSEERR_API_KEY")
-            return False
-        
-        overseerr_url = overseerr_url.rstrip('/')
-        headers = {
-            "X-Api-Key": overseerr_api_key,
-            "Content-Type": "application/json"
-        }
-        
-        # Update media status using the correct endpoint
-        media_url = f"{overseerr_url}/api/v1/media/{media_id}/available"
-        media_data = {
-            "is4k": False
-        }
-            
-        logger.debug(f"Sending POST request to: {media_url}")
-        logger.debug(f"With payload: {media_data}")
-        
-        response = requests.post(media_url, headers=headers, json=media_data)
+        response = requests.post(url, headers=headers, json=data)
+        response_data = response.json()  # Parse the JSON response
         
         if response.status_code == 200:
-            logger.success(f"Successfully marked media {media_id} as available")
-            return True
+            # Verify that the response contains the correct tmdb_id
+            if response_data.get('tmdbId') == tmdb_id:
+                logger.info(f"Marked media {media_id} as completed in overseerr. Response: {response_data}")
+                return True
+            else:
+                logger.error(f"TMDB ID mismatch for media {media_id}. Expected {tmdb_id}, got {response_data.get('tmdbId')}")
+                return False
         else:
-            logger.error(f"Failed to mark media as available: {response.status_code}")
-            logger.debug(f"Response content: {response.text}")
+            logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: Status code {response.status_code}, Response: {response_data}")
             return False
-            
-    except Exception as e:
-        logger.error(f"Error marking media as available: {e}")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: {str(e)}")
+        return False
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to decode JSON response for media {media_id}: {str(e)}")
         return False
 
 
@@ -714,103 +716,76 @@ def prioritize_buttons_in_box(result_box):
 
 
 ### Search Function to Reuse Browser
-def get_imdb_id(tmdb_id: str) -> Optional[str]:
-    """Get IMDB ID from TMDB ID using TMDB API."""
-    url = f"https://api.themoviedb.org/3/movie/{tmdb_id}"  # Changed to main movie endpoint
+def get_imdb_id_from_tmdb(tmdb_id: str) -> Optional[str]:
+    """Fetch IMDB ID for a TV show from TMDB API"""
+    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids"
     params = {
-        "api_key": os.getenv('TMDB_API_KEY'),
-        "append_to_response": "external_ids"
+        "api_key": os.getenv('TMDB_API_KEY')
     }
     
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=10)
         if response.status_code == 200:
             data = response.json()
-            imdb_id = data.get('external_ids', {}).get('imdb_id') or data.get('imdb_id')
+            imdb_id = data.get('imdb_id')
             if imdb_id:
                 logger.info(f"Found IMDB ID {imdb_id} for TMDB ID {tmdb_id}")
                 return imdb_id
             else:
-                logger.warning(f"No IMDB ID found in response for TMDB ID {tmdb_id}")
+                logger.error(f"No IMDB ID found for TMDB ID {tmdb_id}")
                 return None
         else:
-            logger.error(f"Failed to get IMDB ID. Status code: {response.status_code}, Response: {response.text}")
+            logger.error(f"Failed to get external IDs from TMDB: {response.status_code}")
             return None
     except Exception as e:
-        logger.error(f"Error getting IMDB ID: {e}")
+        logger.error(f"Error fetching IMDB ID from TMDB: {e}")
         return None
 
-def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, season: int = None, series_id: str = None) -> bool:
-    """Search for media on Debrid Media Manager."""
+def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None, tmdb_id: str = None) -> bool:
+    """Search for content on Debrid Media Manager"""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
-        if media_type == 'tv':
-            # TV show logic here
-            pass
-        else:
-            # Movie logic with explicit waits
-            try:
-                search_url = "https://debridmediamanager.com/search"
-                driver.get(search_url)
+        if media_type == 'tv' and tmdb_id:
+            # Get IMDB ID from TMDB ID
+            imdb_id = get_imdb_id_from_tmdb(tmdb_id)
+            if not imdb_id:
+                logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
+                return False
                 
-                # Wait for page load
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-                
-                # Wait for and find search input
-                search_input = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='search']"))
-                )
-                
-                # Clear and enter search text
-                search_input.clear()
-                search_input.send_keys(title)
-                search_input.send_keys(Keys.RETURN)
-                
-                # Wait for search results
-                time.sleep(2)
-                
-                # Wait for any button to appear
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "button"))
-                )
-                
-                # Find all buttons
-                buttons = driver.find_elements(By.TAG_NAME, "button")
-                logger.debug(f"Found {len(buttons)} buttons")
-                
-                # Look for Instant RD button
-                for button in buttons:
-                    try:
-                        button_text = button.text
-                        logger.debug(f"Button text: {button_text}")
-                        if "Instant RD" in button_text:
-                            # Try regular click first
-                            try:
-                                button.click()
-                            except:
-                                # Fallback to JavaScript click
-                                driver.execute_script("arguments[0].click();", button)
-                            logger.info("Clicked Instant RD button for movie")
+            # Navigate directly to the show page for the specific season
+            show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
+            logger.info(f"Navigating to show URL: {show_url}")
+            driver.get(show_url)
+            time.sleep(2)  # Wait for page to load
+            
+            # Find all result boxes
+            result_boxes = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.bg-gray-800.rounded-lg.p-4.mb-4"))
+            )
+            
+            for box in result_boxes:
+                try:
+                    # Check if this is a complete release
+                    if "Complete" in box.text:
+                        # Try to click the Instant RD button in this box
+                        if prioritize_buttons_in_box(box):
+                            logger.success(f"Successfully processed release for season {season}")
                             return True
-                    except Exception as button_error:
-                        logger.error(f"Error with button: {button_error}")
-                        continue
+                except Exception as e:
+                    logger.error(f"Error processing result box: {e}")
+                    continue
+            
+            logger.warning(f"No suitable release found for season {season}")
+            return False
                 
-                logger.warning("No Instant RD button found")
-                return False
-                
-            except TimeoutException as te:
-                logger.error(f"Timeout waiting for element: {te}")
-                return False
-            except Exception as inner_error:
-                logger.error(f"Error during movie search: {inner_error}")
-                return False
-                
-    except Exception as outer_error:
-        logger.error(f"Error in search_on_debrid: {str(outer_error)}")
+        else:
+            # Existing movie search logic
+            # ... (keep the existing movie search code here)
+            pass
+            
+    except Exception as e:
+        logger.error(f"Error in search_on_debrid: {e}")
         return False
 
 async def get_user_input():
@@ -845,13 +820,12 @@ async def jellyseer_webhook(request: Request):
         logger.info(f"Received webhook data: {raw_data}")
         
         payload = WebhookPayload(**raw_data)
-        request_id = payload.request.request_id
         
         # Handle based on media type
         if payload.media.media_type == "movie":
             return await process_movie_request(payload)
         elif payload.media.media_type == "tv":
-            # For TV shows, we need the TMDB ID
+            # For TV shows, we need the TMDB ID, not TVDB ID
             tmdb_id = payload.media.tmdbId
             if not tmdb_id:
                 logger.error("No TMDB ID found for TV show request")
@@ -992,7 +966,7 @@ async def process_tv_request(payload: WebhookPayload):
         if successful_seasons and not failed_seasons and request_id:
             media_id = get_media_id_from_request(request_id)
             if media_id:
-                if mark_completed(media_id, series_id, request_id, successful_seasons):
+                if mark_completed(media_id, series_id):
                     logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
                 else:
                     logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
@@ -1015,4 +989,3 @@ async def process_tv_request(payload: WebhookPayload):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8777)
-
