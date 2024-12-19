@@ -655,10 +655,9 @@ def get_media_id_from_request(request_id: str) -> Optional[int]:
         logger.error(f"Error getting request details: {e}")
         return None
 
-def mark_completed(media_id: int, tmdb_id: str) -> bool:
+def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons: list = None) -> bool:
     """Mark a media request as available in Overseerr."""
     try:
-        # Get environment variables
         overseerr_url = os.getenv('OVERSEERR_BASE')
         overseerr_api_key = os.getenv('OVERSEERR_API_KEY')
         
@@ -666,30 +665,36 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
             logger.error("Missing required environment variables: OVERSEERR_BASE or OVERSEERR_API_KEY")
             return False
         
-        # Remove trailing slash if present
         overseerr_url = overseerr_url.rstrip('/')
         
-        # The correct endpoint for marking media as available
-        mark_url = f"{overseerr_url}/api/v1/request/{media_id}"
+        # Use request_id instead of media_id for the endpoint
+        if not request_id:
+            logger.error("Request ID is required for marking TV shows as available")
+            return False
+            
+        mark_url = f"{overseerr_url}/api/v1/request/{request_id}"
         headers = {
             "X-Api-Key": overseerr_api_key,
             "Content-Type": "application/json"
         }
         
-        # The payload for marking as available
+        # Build the payload
         data = {
-            "status": "available",
-            "mediaType": "tv"  # or 'movie' depending on the type
+            "mediaType": "tv",
+            "status": 1,  # 1 = available
         }
         
+        # Add seasons if provided
+        if seasons:
+            data["seasons"] = seasons
+            
         logger.debug(f"Sending PUT request to: {mark_url}")
         logger.debug(f"With payload: {data}")
         
-        # Use PUT request instead of POST
         response = requests.put(mark_url, headers=headers, json=data)
         
         if response.status_code == 200:
-            logger.success(f"Successfully marked media {media_id} as available")
+            logger.success(f"Successfully marked request {request_id} as available")
             return True
         else:
             logger.error(f"Failed to mark media as available: {response.status_code}")
@@ -989,7 +994,7 @@ async def process_tv_request(payload: WebhookPayload):
         if successful_seasons and not failed_seasons and request_id:
             media_id = get_media_id_from_request(request_id)
             if media_id:
-                if mark_completed(media_id, series_id):
+                if mark_completed(media_id, series_id, request_id, successful_seasons):
                     logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
                 else:
                     logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
