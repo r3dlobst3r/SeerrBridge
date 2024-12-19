@@ -1318,7 +1318,7 @@ async def tv_webhook(request: Request):
         tmdb_id = data.get('media', {}).get('tmdbId')
         logger.info(f"Processing TV show TMDB ID: {tmdb_id}")
         
-        # Get IMDB ID from TMDB
+        # Get IMDB ID and show details from TMDB
         url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
         logger.info(f"Fetching TV show details from TMDB API: {url}")
         
@@ -1328,6 +1328,9 @@ async def tv_webhook(request: Request):
                     show_data = await response.json()
                     imdb_id = show_data.get('external_ids', {}).get('imdb_id')
                     show_title = show_data.get('name', '')
+                    total_seasons = show_data.get('number_of_seasons', 0)
+                    
+                    logger.info(f"Show: {show_title}, Total Seasons: {total_seasons}")
                     
                     if not imdb_id:
                         logger.error(f"No IMDB ID found for show: {show_title}")
@@ -1337,90 +1340,107 @@ async def tv_webhook(request: Request):
                     if not imdb_id.startswith('tt'):
                         imdb_id = f"tt{imdb_id}"
                     
-                    logger.info(f"Found show: {show_title} with IMDB ID: {imdb_id}")
+                    # Track successful seasons
+                    successful_seasons = []
                     
-                    # Construct and navigate to DMM URL
-                    show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
-                    logger.info(f"Navigating to DMM URL: {show_url}")
-                    
-                    driver.get(show_url)
-                    
-                    # Wait for the page to load
-                    try:
-                        WebDriverWait(driver, 15).until(
-                            EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'border-black')]"))
-                        )
-                        logger.info("Page loaded, checking for result boxes...")
+                    # Process each season
+                    for season in range(1, total_seasons + 1):
+                        logger.info(f"Processing {show_title} Season {season}")
                         
-                        # Find all result boxes
-                        result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-black')]")
-                        logger.info(f"Found {len(result_boxes)} result boxes")
+                        # Construct and navigate to DMM URL for this season
+                        show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
+                        logger.info(f"Navigating to DMM URL: {show_url}")
                         
-                        for i, result_box in enumerate(result_boxes, 1):
-                            try:
-                                # First check for existing RD (100%) button
+                        driver.get(show_url)
+                        
+                        try:
+                            # Wait for the page to load
+                            WebDriverWait(driver, 15).until(
+                                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'border-black')]"))
+                            )
+                            logger.info(f"Page loaded for Season {season}, checking for result boxes...")
+                            
+                            # Find all result boxes
+                            result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-black')]")
+                            logger.info(f"Found {len(result_boxes)} result boxes for Season {season}")
+                            
+                            season_processed = False
+                            
+                            for i, result_box in enumerate(result_boxes, 1):
                                 try:
-                                    rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-red-900/30')]")
-                                    logger.info(f"Found existing RD (100%) button in box {i}, skipping...")
-                                    continue
-                                except NoSuchElementException:
-                                    pass  # No RD (100%) button found, continue with checks
-                                
-                                # Try Instant RD first
-                                try:
-                                    instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
-                                    logger.info(f"Found Instant RD button in box {i}")
-                                    
-                                    # Get initial state
-                                    initial_state = instant_rd_button.get_attribute("class")
-                                    logger.info(f"Initial button state: {initial_state}")
-                                    
-                                    # Click the button
-                                    instant_rd_button.click()
-                                    logger.success(f"Clicked Instant RD button in box {i}")
-                                    
-                                    # Wait for state change
-                                    WebDriverWait(result_box, 5).until(
-                                        lambda x: instant_rd_button.get_attribute("class") != initial_state
-                                    )
-                                    logger.success(f"Button state changed in box {i}")
-                                    return {"status": "success", "message": f"Processed {show_title}"}
-                                    
-                                except (NoSuchElementException, TimeoutException):
-                                    # Try DL with RD if Instant RD fails
+                                    # First check for existing RD (100%) button
                                     try:
-                                        dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
-                                        logger.info(f"Found DL with RD button in box {i}")
+                                        rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-red-900/30')]")
+                                        logger.info(f"Found existing RD (100%) button for Season {season} in box {i}")
+                                        season_processed = True
+                                        break
+                                    except NoSuchElementException:
+                                        pass
+                                    
+                                    # Try Instant RD first
+                                    try:
+                                        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                                        initial_state = instant_rd_button.get_attribute("class")
+                                        instant_rd_button.click()
+                                        logger.success(f"Clicked Instant RD button for Season {season} in box {i}")
                                         
-                                        # Get initial state
-                                        initial_state = dl_with_rd_button.get_attribute("class")
-                                        logger.info(f"Initial button state: {initial_state}")
-                                        
-                                        # Click the button
-                                        dl_with_rd_button.click()
-                                        logger.success(f"Clicked DL with RD button in box {i}")
-                                        
-                                        # Wait for state change
                                         WebDriverWait(result_box, 5).until(
-                                            lambda x: dl_with_rd_button.get_attribute("class") != initial_state
+                                            lambda x: instant_rd_button.get_attribute("class") != initial_state
                                         )
-                                        logger.success(f"Button state changed in box {i}")
-                                        return {"status": "success", "message": f"Processed {show_title}"}
+                                        season_processed = True
+                                        break
                                         
                                     except (NoSuchElementException, TimeoutException):
-                                        logger.warning(f"No valid RD buttons found in box {i}")
-                                        continue
-                                
-                            except Exception as e:
-                                logger.warning(f"Error processing box {i}: {str(e)}")
-                                continue
+                                        # Try DL with RD if Instant RD fails
+                                        try:
+                                            dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+                                            initial_state = dl_with_rd_button.get_attribute("class")
+                                            dl_with_rd_button.click()
+                                            logger.success(f"Clicked DL with RD button for Season {season} in box {i}")
+                                            
+                                            WebDriverWait(result_box, 5).until(
+                                                lambda x: dl_with_rd_button.get_attribute("class") != initial_state
+                                            )
+                                            season_processed = True
+                                            break
+                                            
+                                        except (NoSuchElementException, TimeoutException):
+                                            continue
+                                            
+                                except Exception as e:
+                                    logger.warning(f"Error processing box {i} for Season {season}: {str(e)}")
+                                    continue
+                            
+                            if season_processed:
+                                successful_seasons.append(season)
+                                logger.success(f"Successfully processed Season {season}")
+                            else:
+                                logger.warning(f"Failed to process Season {season}")
+                            
+                        except TimeoutException:
+                            logger.error(f"Timeout waiting for Season {season} page to load")
+                            continue
+                    
+                    # Update Overseerr status based on processed seasons
+                    if successful_seasons:
+                        if len(successful_seasons) == total_seasons:
+                            # All seasons processed successfully
+                            await update_overseerr_status(data, "available")
+                            logger.success(f"All {total_seasons} seasons processed successfully")
+                        else:
+                            # Only some seasons processed
+                            seasons_str = ", ".join(str(s) for s in successful_seasons)
+                            await update_overseerr_status(data, "partial", f"Seasons {seasons_str} available")
+                            logger.warning(f"Partially processed. Seasons {seasons_str} available")
                         
-                        logger.warning("No valid RD buttons found in any box")
-                        return {"status": "error", "message": "No valid RD buttons found"}
-                        
-                    except TimeoutException:
-                        logger.error("Timeout waiting for page to load")
-                        return {"status": "error", "message": "Page load timeout"}
+                        return {
+                            "status": "success",
+                            "message": f"Processed {len(successful_seasons)} of {total_seasons} seasons",
+                            "seasons_processed": successful_seasons
+                        }
+                    else:
+                        await update_overseerr_status(data, "failed")
+                        return {"status": "error", "message": "No seasons could be processed"}
                         
                 else:
                     logger.error(f"TMDB API request failed with status: {response.status}")
@@ -1429,6 +1449,40 @@ async def tv_webhook(request: Request):
     except Exception as e:
         logger.error(f"Error processing TV show: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+async def update_overseerr_status(request_data, status, message=None):
+    """Update the status of a request in Overseerr"""
+    try:
+        request_id = request_data.get('id')
+        media_id = request_data.get('media', {}).get('id')
+        
+        if not request_id or not media_id:
+            logger.error("Missing request_id or media_id for Overseerr status update")
+            return
+        
+        url = f"{OVERSEERR_URL}/api/v1/media/{media_id}"
+        headers = {"X-Api-Key": OVERSEERR_API_KEY}
+        
+        status_map = {
+            "available": 5,    # Available
+            "partial": 3,      # Partially available
+            "failed": 4        # Failed
+        }
+        
+        data = {
+            "status": status_map.get(status, 4),
+            "message": message
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.put(url, headers=headers, json=data) as response:
+                if response.status == 200:
+                    logger.success(f"Updated Overseerr status to {status}")
+                else:
+                    logger.error(f"Failed to update Overseerr status. Status code: {response.status}")
+                    
+    except Exception as e:
+        logger.error(f"Error updating Overseerr status: {e}")
 
 @app.post("/jellyseer-webhook/movie")
 async def movie_webhook(request: Request):
