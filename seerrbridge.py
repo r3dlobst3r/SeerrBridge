@@ -769,52 +769,31 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             # Wait for any content to load
             time.sleep(2)
             
-            # Get the page source and log it
-            page_source = driver.page_source
-            logger.debug(f"Page source snippet: {page_source[:500]}...")
-            
-            # Try to find any button with title "Instant RD"
             try:
-                instant_buttons = WebDriverWait(driver, 10).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "button[title='Instant RD']"))
-                )
-                logger.info(f"Found {len(instant_buttons)} Instant RD buttons")
+                # Find all Instant RD buttons
+                instant_rd_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), '⚡Instant RD')]")
+                logger.info(f"Found {len(instant_rd_buttons)} Instant RD buttons")
                 
-                for button in instant_buttons:
-                    # Get the parent container text to check if it's complete
-                    parent = button.find_element(By.XPATH, "./ancestor::div[contains(@class, 'bg-gray-800')]")
-                    parent_text = parent.text.lower()
-                    logger.debug(f"Found button in container with text: {parent_text[:100]}...")
-                    
-                    if "complete" in parent_text:
-                        logger.info("Found complete release, clicking button")
-                        driver.execute_script("arguments[0].click();", button)
-                        time.sleep(1)
-                        return True
-                
-                logger.warning("No complete releases found with Instant RD buttons")
-                return False
-                
-            except Exception as e:
-                logger.error(f"Error finding Instant RD buttons: {str(e)}")
-                
-                # Try alternative approach - look for any clickable elements
-                try:
-                    clickable = WebDriverWait(driver, 5).until(
-                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "[role='button'], button"))
-                    )
-                    logger.debug(f"Found {len(clickable)} clickable elements")
-                    
-                    for element in clickable:
+                if instant_rd_buttons:
+                    # Click the first available Instant RD button
+                    for button in instant_rd_buttons:
                         try:
-                            element_text = element.get_attribute('title') or element.text
-                            logger.debug(f"Clickable element: {element_text}")
-                        except:
-                            pass
-                            
-                except Exception as e2:
-                    logger.error(f"Error finding clickable elements: {str(e2)}")
-                
+                            driver.execute_script("arguments[0].click();", button)
+                            logger.info("Clicked Instant RD button")
+                            time.sleep(2)  # Wait for processing
+                            return True
+                        except Exception as e:
+                            logger.warning(f"Failed to click button: {str(e)}")
+                            continue
+                    
+                    logger.warning("No clickable Instant RD buttons found")
+                    return False
+                else:
+                    logger.warning("No Instant RD buttons found")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"Error processing Instant RD buttons: {str(e)}")
                 return False
                 
         else:
