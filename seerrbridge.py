@@ -1327,25 +1327,33 @@ async def process_season_box(result_box, season, box_number):
 
         # Next priority: Instant RD - using the exact button structure
         try:
-            instant_rd_xpath = ".//button[contains(@class, 'border-green-500') and contains(@class, 'bg-green-900/30')]"
-            instant_rd_buttons = result_box.find_elements(By.XPATH, instant_rd_xpath)
+            # First try finding by exact text content
+            instant_rd_button = result_box.find_element(By.XPATH, ".//button[.//b[text()='Instant RD']]")
+            logger.info(f"Found Instant RD button in box {box_number}")
+            initial_state = instant_rd_button.get_attribute("class")
+            instant_rd_button.click()
+            logger.success(f"Clicked Instant RD button in box {box_number}")
             
-            for button in instant_rd_buttons:
-                if "Instant RD" in button.text:
-                    logger.info(f"Found Instant RD button in box {box_number}")
-                    initial_state = button.get_attribute("class")
-                    button.click()
-                    logger.success(f"Clicked Instant RD button in box {box_number}")
-                    
-                    # Wait for state change
-                    WebDriverWait(result_box, 5).until(
-                        lambda x: button.get_attribute("class") != initial_state
-                    )
-                    return True
-            
-            logger.debug(f"No Instant RD button found in box {box_number}")
-        except Exception as e:
-            logger.debug(f"Error finding Instant RD button in box {box_number}: {str(e)}")
+            # Wait for state change
+            WebDriverWait(result_box, 5).until(
+                lambda x: instant_rd_button.get_attribute("class") != initial_state
+            )
+            return True
+        except NoSuchElementException:
+            # If that fails, try finding by button text containing Instant RD
+            try:
+                instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(., 'Instant RD')]")
+                logger.info(f"Found Instant RD button (alternate method) in box {box_number}")
+                initial_state = instant_rd_button.get_attribute("class")
+                instant_rd_button.click()
+                logger.success(f"Clicked Instant RD button in box {box_number}")
+                
+                WebDriverWait(result_box, 5).until(
+                    lambda x: instant_rd_button.get_attribute("class") != initial_state
+                )
+                return True
+            except NoSuchElementException:
+                logger.debug(f"No Instant RD button found in box {box_number}")
 
         # Last resort: DL with RD
         try:
