@@ -1464,50 +1464,44 @@ async def tv_webhook(request: Request):
         logger.error(f"Error processing TV show: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-async def update_overseerr_status(request_data, status, message=None):
+async def update_overseerr_status(request_id, status, media_type, message=None, seasons=None):
     """Update the status of a request in Overseerr"""
     try:
-        # Extract IDs from the request data
-        request_id = request_data.get('id')
-        media_type = request_data.get('media', {}).get('mediaType', 'tv')
-        
-        logger.info(f"Updating Overseerr status - Request ID: {request_id}, Status: {status}")
-        
-        if not request_id:
-            logger.error("Missing request_id for Overseerr status update")
-            return
-        
-        # Use the request endpoint
         url = f"{OVERSEERR_BASE}/api/v1/request/{request_id}"
-        headers = {"X-Api-Key": OVERSEERR_API_KEY}
-        
-        status_map = {
-            "available": 5,    # Available
-            "partial": 3,      # Partially available
-            "failed": 4        # Failed
+        headers = {
+            "X-Api-Key": OVERSEERR_API_KEY,
+            "Content-Type": "application/json"
         }
         
-        # Construct payload according to API specification
-        data = {
-            "status": status_map.get(status, 4),
+        # Build the update data
+        update_data = {
+            "status": status,
             "mediaType": media_type
         }
         
+        # Add message if provided
         if message:
-            data["message"] = message
+            update_data["message"] = message
             
-        logger.info(f"Sending update to Overseerr: URL={url}, Data={data}")
+        # Add seasons if this is a TV show
+        if media_type == "tv" and seasons is not None:
+            update_data["seasons"] = seasons
+
+        logger.info(f"Sending update to Overseerr: URL={url}, Data={update_data}")
         
         async with aiohttp.ClientSession() as session:
-            async with session.put(url, headers=headers, json=data) as response:
-                response_text = await response.text()
+            async with session.put(url, headers=headers, json=update_data) as response:
                 if response.status == 200:
-                    logger.success(f"Updated Overseerr status to {status}")
+                    logger.success(f"Successfully updated Overseerr status for request {request_id}")
+                    return True
                 else:
+                    response_text = await response.text()
                     logger.error(f"Failed to update Overseerr status. Status code: {response.status}, Response: {response_text}")
+                    return False
                     
     except Exception as e:
-        logger.error(f"Error updating Overseerr status: {e}")
+        logger.error(f"Error updating Overseerr status: {str(e)}")
+        return False
 
 @app.post("/jellyseer-webhook/movie")
 async def movie_webhook(request: Request):
@@ -1614,7 +1608,6 @@ async def search_tv_show(title: str, season: int, episode: int, driver) -> bool:
         # Wait for search input and enter show title
         search_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-        )
         search_input.clear()
         search_input.send_keys(title)
         search_input.send_keys(Keys.RETURN)
