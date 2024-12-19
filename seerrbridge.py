@@ -749,76 +749,28 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
             # TV show logic here
             pass
         else:
-            try:
-                # Get IMDB ID first
-                imdb_id = get_imdb_id(series_id) if series_id else None
-                if imdb_id:
-                    # Use direct movie URL
-                    movie_url = f"https://debridmediamanager.com/movie/{imdb_id}"
-                    logger.info(f"Using direct movie URL: {movie_url}")
-                    driver.get(movie_url)
-                    
-                    # Wait for page load
-                    time.sleep(3)
-                    
-                    # Look for Instant RD button
-                    try:
-                        logger.debug("Looking for Instant RD button...")
-                        buttons = driver.find_elements(By.TAG_NAME, "button")
-                        logger.debug(f"Found {len(buttons)} buttons")
-                        
-                        for button in buttons:
-                            try:
-                                button_text = button.text
-                                logger.debug(f"Found button with text: '{button_text}'")
-                                if "Instant RD" in button_text:
-                                    logger.info("Found Instant RD button, clicking...")
-                                    driver.execute_script("arguments[0].click();", button)
-                                    logger.success("Clicked Instant RD button")
-                                    return True
-                            except Exception as e:
-                                logger.error(f"Error processing button: {e}")
-                                continue
-                                
-                        logger.warning("No Instant RD button found")
-                        return False
-                        
-                    except Exception as e:
-                        logger.error(f"Error finding/clicking buttons: {e}")
-                        return False
-                else:
-                    # Fallback to search
-                    logger.warning(f"No IMDB ID found for {title}, falling back to search")
-                    search_url = "https://debridmediamanager.com/search"
-                    driver.get(search_url)
-                    time.sleep(2)
-                    
-                    try:
-                        search_input = WebDriverWait(driver, 10).until(
-                            EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-                        )
-                        search_input.clear()
-                        search_input.send_keys(title)
-                        search_input.send_keys(Keys.RETURN)
-                        
-                        time.sleep(3)
-                        
-                        buttons = driver.find_elements(By.TAG_NAME, "button")
-                        for button in buttons:
-                            button_text = button.text
-                            logger.debug(f"Found button with text: '{button_text}'")
-                            if "Instant RD" in button_text:
-                                driver.execute_script("arguments[0].click();", button)
-                                return True
-                        
-                        return False
-                    except Exception as e:
-                        logger.error(f"Error during search: {e}")
-                        return False
-                        
-            except Exception as e:
-                logger.error(f"Error processing movie: {e}")
-                return False
+            # Original working movie logic
+            search_url = "https://debridmediamanager.com/search"
+            driver.get(search_url)
+            
+            search_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+            )
+            search_input.clear()
+            search_input.send_keys(title)
+            search_input.send_keys(Keys.RETURN)
+            
+            time.sleep(2)
+            
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            for button in buttons:
+                if "Instant RD" in button.text:
+                    button.click()
+                    logger.info("Clicked Instant RD button for movie")
+                    return True
+            
+            logger.warning("No Instant RD button found")
+            return False
                 
     except Exception as e:
         logger.error(f"Error in search_on_debrid: {str(e)}")
@@ -856,12 +808,13 @@ async def jellyseer_webhook(request: Request):
         logger.info(f"Received webhook data: {raw_data}")
         
         payload = WebhookPayload(**raw_data)
+        request_id = payload.request.request_id
         
         # Handle based on media type
         if payload.media.media_type == "movie":
             return await process_movie_request(payload)
         elif payload.media.media_type == "tv":
-            # For TV shows, we need the TMDB ID, not TVDB ID
+            # For TV shows, we need the TMDB ID
             tmdb_id = payload.media.tmdbId
             if not tmdb_id:
                 logger.error("No TMDB ID found for TV show request")
