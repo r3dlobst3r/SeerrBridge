@@ -755,8 +755,9 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
+            time.sleep(3)  # Initial wait
             
-            # Wait for the loading spinner to disappear (if it exists)
+            # Wait for the loading spinner to disappear
             try:
                 WebDriverWait(driver, 10).until_not(
                     EC.presence_of_element_located((By.CSS_SELECTOR, "div.loading-spinner"))
@@ -764,44 +765,49 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                 logger.debug("Loading spinner disappeared")
             except:
                 logger.debug("No loading spinner found")
+                
+            # Log the current page structure
+            logger.debug("Current page structure:")
+            main_content = driver.find_element(By.TAG_NAME, "main")
+            logger.debug(f"Main content HTML: {main_content.get_attribute('innerHTML')[:500]}...")
             
-            # Wait specifically for the release containers to appear
-            try:
-                containers = WebDriverWait(driver, 15).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.release-item"))
-                )
-                logger.debug(f"Found {len(containers)} release items")
-                
-                for container in containers:
-                    try:
-                        # Wait for the container to be visible and interactable
-                        WebDriverWait(driver, 5).until(
-                            EC.element_to_be_clickable(container)
-                        )
-                        
-                        # Get the text content
-                        container_text = container.text.lower()
-                        logger.debug(f"Container text: {container_text[:100]}...")
-                        
-                        if "complete" in container_text:
-                            # Try to find and click the Instant RD button
-                            instant_rd = container.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
-                            if instant_rd:
-                                logger.info("Found Instant RD button, attempting to click")
-                                driver.execute_script("arguments[0].click();", instant_rd)
-                                logger.success("Clicked Instant RD button")
-                                time.sleep(1)
-                                return True
-                    except Exception as e:
-                        logger.debug(f"Error processing container: {str(e)}")
-                        continue
-                
-                logger.warning("No suitable releases found")
-                return False
-                
-            except Exception as e:
-                logger.error(f"Error waiting for release items: {str(e)}")
-                return False
+            # Try different selectors
+            selectors_to_try = [
+                "div.bg-gray-800",
+                "div.release-item",
+                "div[role='button']",
+                "button[title='Instant RD']",
+                "div.p-4"
+            ]
+            
+            for selector in selectors_to_try:
+                try:
+                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                    logger.debug(f"Found {len(elements)} elements with selector: {selector}")
+                    if elements:
+                        for element in elements:
+                            try:
+                                text = element.text
+                                logger.debug(f"Element text: {text[:100]}...")
+                                
+                                # If this element has an Instant RD button
+                                buttons = element.find_elements(By.CSS_SELECTOR, "button[title='Instant RD']")
+                                if buttons:
+                                    logger.info(f"Found Instant RD button in element with text: {text[:50]}...")
+                                    driver.execute_script("arguments[0].click();", buttons[0])
+                                    logger.success("Clicked Instant RD button")
+                                    time.sleep(1)
+                                    return True
+                            except Exception as e:
+                                logger.debug(f"Error processing element: {str(e)}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"Error with selector {selector}: {str(e)}")
+                    continue
+            
+            # If we get here, we didn't find any suitable elements
+            logger.warning("No suitable elements found with any selector")
+            return False
                 
         else:
             # Existing movie logic...
