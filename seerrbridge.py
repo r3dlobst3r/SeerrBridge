@@ -761,8 +761,8 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             )
             logger.debug("Loading spinner disappeared")
 
-            # Wait for content to load
-            time.sleep(2)
+            # Wait longer for content to fully load
+            time.sleep(3)
 
             # Find all Instant RD buttons
             buttons = driver.find_elements(By.CSS_SELECTOR, 
@@ -777,11 +777,11 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                         # Use JavaScript to click the button
                         driver.execute_script("arguments[0].click();", button)
                         
-                        # Wait for button text to change to "RD (100%)"
+                        # Wait longer for button state to change
                         try:
-                            WebDriverWait(driver, 3).until(
+                            WebDriverWait(driver, 6).until(
                                 lambda d: "RD (100%)" in d.execute_script(
-                                    "return arguments[0].textContent", button
+                                    "return arguments[0].parentElement.textContent", button
                                 )
                             )
                             successful_clicks += 1
@@ -790,7 +790,8 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                             logger.debug(f"Button state did not change after click: {e}")
                             continue
                             
-                        time.sleep(0.5)
+                        # Wait longer between clicks
+                        time.sleep(1)
                 except Exception as e:
                     logger.debug(f"Failed to click button: {e}")
                     continue
