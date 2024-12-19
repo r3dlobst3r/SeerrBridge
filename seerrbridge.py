@@ -755,45 +755,52 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(5)  # Increased wait time
             
-            # Log the page source to see what we're working with
-            logger.debug(f"Page title: {driver.title}")
-            logger.debug("Looking for result boxes...")
-            
-            # Try to find any elements to verify page loaded
+            # Wait for the loading spinner to disappear (if it exists)
             try:
-                # First check if page has loaded at all
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                WebDriverWait(driver, 10).until_not(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.loading-spinner"))
                 )
-                logger.debug("Page body found")
-                
-                # Look for the specific container that holds the releases
-                containers = driver.find_elements(By.CSS_SELECTOR, "div.bg-gray-800")
-                logger.debug(f"Found {len(containers)} gray containers")
+                logger.debug("Loading spinner disappeared")
+            except:
+                logger.debug("No loading spinner found")
+            
+            # Wait specifically for the release containers to appear
+            try:
+                containers = WebDriverWait(driver, 15).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.release-item"))
+                )
+                logger.debug(f"Found {len(containers)} release items")
                 
                 for container in containers:
-                    logger.debug(f"Container text: {container.text[:100]}...")  # Log first 100 chars
-                    
-                    # Check if this container has the Instant RD button
-                    buttons = container.find_elements(By.CSS_SELECTOR, "button[title='Instant RD']")
-                    if buttons:
-                        logger.info("Found Instant RD button")
-                        buttons[0].click()
-                        logger.success("Clicked Instant RD button")
-                        time.sleep(1)
-                        return True
-                    else:
-                        logger.debug("No Instant RD button found in this container")
+                    try:
+                        # Wait for the container to be visible and interactable
+                        WebDriverWait(driver, 5).until(
+                            EC.element_to_be_clickable(container)
+                        )
+                        
+                        # Get the text content
+                        container_text = container.text.lower()
+                        logger.debug(f"Container text: {container_text[:100]}...")
+                        
+                        if "complete" in container_text:
+                            # Try to find and click the Instant RD button
+                            instant_rd = container.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
+                            if instant_rd:
+                                logger.info("Found Instant RD button, attempting to click")
+                                driver.execute_script("arguments[0].click();", instant_rd)
+                                logger.success("Clicked Instant RD button")
+                                time.sleep(1)
+                                return True
+                    except Exception as e:
+                        logger.debug(f"Error processing container: {str(e)}")
+                        continue
                 
-                logger.warning("No containers with Instant RD buttons found")
+                logger.warning("No suitable releases found")
                 return False
                 
             except Exception as e:
-                logger.error(f"Error finding elements: {str(e)}")
-                # Log the current page source when there's an error
-                logger.debug(f"Current page source: {driver.page_source[:500]}...")  # First 500 chars
+                logger.error(f"Error waiting for release items: {str(e)}")
                 return False
                 
         else:
