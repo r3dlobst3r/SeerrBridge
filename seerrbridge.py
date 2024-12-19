@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -666,61 +666,52 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
             return False
         
         overseerr_url = overseerr_url.rstrip('/')
-        
-        if not request_id:
-            logger.error("Request ID is required for marking TV shows as available")
-            return False
-            
-        # Update the media request status
-        request_url = f"{overseerr_url}/api/v1/media-request/{request_id}"
         headers = {
             "X-Api-Key": overseerr_api_key,
             "Content-Type": "application/json"
         }
         
-        # Build the request payload
-        request_data = {
-            "is4k": False,
-            "status": "available",  # Try string instead of number
-            "mediaType": "tv"
+        # Update media status using the correct endpoint
+        media_url = f"{overseerr_url}/api/v1/media/{media_id}/available"
+        media_data = {
+            "is4k": False
         }
-        
-        if seasons:
-            request_data["seasons"] = seasons
             
-        logger.debug(f"Sending PUT request to: {request_url}")
-        logger.debug(f"With payload: {request_data}")
+        logger.debug(f"Sending POST request to: {media_url}")
+        logger.debug(f"With payload: {media_data}")
         
-        response = requests.put(request_url, headers=headers, json=request_data)
+        response = requests.post(media_url, headers=headers, json=media_data)
         
         if response.status_code == 200:
-            logger.success(f"Successfully marked request {request_id} as available")
+            logger.success(f"Successfully marked media {media_id} as available")
+            
+            # If we have a request ID, also approve the request
+            if request_id:
+                request_url = f"{overseerr_url}/api/v1/request/{request_id}/status"
+                request_data = {
+                    "status": "approve"
+                }
+                
+                logger.debug(f"Sending POST request to: {request_url}")
+                logger.debug(f"With payload: {request_data}")
+                
+                request_response = requests.post(request_url, headers=headers, json=request_data)
+                
+                if request_response.status_code == 200:
+                    logger.success(f"Successfully approved request {request_id}")
+                else:
+                    logger.error(f"Failed to approve request: {request_response.status_code}")
+                    logger.debug(f"Response content: {request_response.text}")
+                    return False
+            
             return True
         else:
-            logger.error(f"Failed to mark request as available: {response.status_code}")
+            logger.error(f"Failed to mark media as available: {response.status_code}")
             logger.debug(f"Response content: {response.text}")
-            
-            # Try alternate endpoint if first one fails
-            alt_request_url = f"{overseerr_url}/api/v1/request/{request_id}/status"
-            alt_request_data = {
-                "status": "available"
-            }
-            
-            logger.debug(f"Trying alternate endpoint: {alt_request_url}")
-            logger.debug(f"With payload: {alt_request_data}")
-            
-            alt_response = requests.post(alt_request_url, headers=headers, json=alt_request_data)
-            
-            if alt_response.status_code == 200:
-                logger.success(f"Successfully marked request {request_id} as available using alternate endpoint")
-                return True
-            else:
-                logger.error(f"Failed to mark request as available using alternate endpoint: {alt_response.status_code}")
-                logger.debug(f"Response content: {alt_response.text}")
-                return False
+            return False
             
     except Exception as e:
-        logger.error(f"Error marking request as available: {e}")
+        logger.error(f"Error marking media as available: {e}")
         return False
 
 
