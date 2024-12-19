@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -684,26 +684,6 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
         
         if response.status_code == 200:
             logger.success(f"Successfully marked media {media_id} as available")
-            
-            # If we have a request ID, also approve the request
-            if request_id:
-                request_url = f"{overseerr_url}/api/v1/request/{request_id}/status"
-                request_data = {
-                    "status": "approve"
-                }
-                
-                logger.debug(f"Sending POST request to: {request_url}")
-                logger.debug(f"With payload: {request_data}")
-                
-                request_response = requests.post(request_url, headers=headers, json=request_data)
-                
-                if request_response.status_code == 200:
-                    logger.success(f"Successfully approved request {request_id}")
-                else:
-                    logger.error(f"Failed to approve request: {request_response.status_code}")
-                    logger.debug(f"Response content: {request_response.text}")
-                    return False
-            
             return True
         else:
             logger.error(f"Failed to mark media as available: {response.status_code}")
