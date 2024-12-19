@@ -1250,58 +1250,40 @@ async def get_user_input():
 
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
-async def jellyseer_webhook(request: Request):
-    """Handle incoming webhooks from Jellyseerr/Overseerr"""
+async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
+    raw_payload = await request.json()
+    
     try:
-        payload = WebhookPayload(**await request.json())
+        payload = WebhookPayload(**raw_payload)
         
-        # Check if this is a TV show request
-        if payload.media.mediaType == "tv":
-            logger.info(f"Received TV show webhook for {payload.media.tmdbId}")
-            return await process_tv_request(payload)
+        if payload.media.media_type == "tv":
+            # Handle TV show request
+            tvdb_id = payload.media.tvdbId
+            if not tvdb_id:
+                logger.error("TVDB ID is missing in the TV show payload")
+                raise HTTPException(status_code=400, detail="TVDB ID is missing")
+                
+            # Get show details from TVDB API
+            show_details = get_show_details_from_tvdb(tvdb_id)
+            if not show_details:
+                logger.error("Failed to fetch show details from TVDB")
+                raise HTTPException(status_code=500, detail="Failed to fetch show details")
+                
+            # Process each season/episode
+            for season in show_details['seasons']:
+                for episode in season['episodes']:
+                    show_title = f"{show_details['title']} S{season['number']:02d}E{episode['number']:02d}"
+                    background_tasks.add_task(add_request_to_queue, show_title)
+                    
+            return {"status": "success", "show_title": show_details['title']}
+            
         else:
-            # Handle movie requests with existing logic
-            logger.info(f"Received movie webhook for {payload.media.tmdbId}")
+            # Existing movie handling code
             return await process_movie_request(payload)
             
-    except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def process_tv_request(payload: WebhookPayload):
-    """Process TV show requests using IMDB ID with tt prefix"""
-    try:
-        tmdb_id = payload.media.tmdbId
-        request_id = payload.request.request_id if hasattr(payload, 'request') else None
-        
-        # Get show details including IMDB ID
-        show_details = await get_show_details_from_tmdb(tmdb_id)
-        if not show_details or not show_details.get('imdb_id'):
-            logger.error(f"Failed to get IMDB ID for TMDB ID {tmdb_id}")
-            return {"status": "error", "message": "Failed to get IMDB ID"}
-            
-        imdb_id = show_details['imdb_id']  # This will now include the 'tt' prefix
-        show_title = show_details['title']
-        
-        # Navigate directly to show page using IMDB ID with tt prefix
-        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
-        logger.info(f"Navigating to TV show URL: {show_url}")
-        
-        driver.get(show_url)
-        
-        # Process the show page
-        if await process_tv_show_page(driver, show_title):
-            if request_id:
-                media_id = get_media_id_from_request(request_id)
-                if media_id and mark_completed(media_id, tmdb_id):
-                    logger.success(f"Successfully marked TV show {show_title} as available")
-                    return {"status": "success"}
-                    
-        return {"status": "error", "message": "Failed to process TV show"}
-        
-    except Exception as e:
-        logger.error(f"Error processing TV request: {e}")
-        return {"status": "error", "message": str(e)}
+    except ValidationError as e:
+        logger.error(f"Payload validation error: {e}")
+        raise HTTPException(status_code=422, detail=str(e))
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
@@ -1443,36 +1425,6 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
     except Exception as ex:
         logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
         return False
-
-async def get_show_details_from_tmdb(tmdb_id: int) -> Optional[dict]:
-    """Fetch TV show details from TMDB API including IMDB ID with tt prefix"""
-    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    imdb_id = data.get('external_ids', {}).get('imdb_id')
-                    if not imdb_id:
-                        logger.error(f"No IMDB ID found for TMDB ID {tmdb_id}")
-                        return None
-                        
-                    # Ensure IMDB ID has 'tt' prefix
-                    if not imdb_id.startswith('tt'):
-                        imdb_id = f"tt{imdb_id}"
-                        
-                    return {
-                        "title": data['name'],
-                        "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
-                        "imdb_id": imdb_id
-                    }
-                else:
-                    logger.error(f"TMDB API request failed with status code {response.status}")
-                    return None
-    except Exception as e:
-        logger.error(f"Error fetching show details from TMDB API: {e}")
-        return None
 
 # Main entry point for running the FastAPI server
 if __name__ == "__main__":
