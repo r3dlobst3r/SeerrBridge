@@ -1024,7 +1024,6 @@ def search_on_debrid(movie_title, driver):
                         (By.XPATH, "//div[@role='status' and contains(@aria-live, 'polite') and contains(text(), 'available torrents in RD')]")
                     )
                 )
-
                 status_text = status_element.text
                 logger.info(f"Status message: {status_text}")
             except TimeoutException:
@@ -1272,30 +1271,46 @@ async def handle_tv_request(data: dict):
     """Completely separate handler for TV shows"""
     try:
         tmdb_id = data['media']['tmdbId']
-        logger.info(f"Processing TV show with TMDB ID: {tmdb_id}")
+        season = data['media'].get('seasons', [{}])[0].get('seasonNumber', 1)  # Default to season 1 if not specified
+        logger.info(f"Processing TV show with TMDB ID: {tmdb_id}, Season: {season}")
         
         # Get IMDB ID from TMDB
         show_details = await get_tv_show_imdb_id(tmdb_id)
-        if not show_details:
-            return {"status": "error", "message": "Failed to get show details"}
+        if not show_details or not show_details.get('imdb_id'):
+            logger.error(f"Failed to get IMDB ID for TMDB ID: {tmdb_id}")
+            return {"status": "error", "message": "Failed to get IMDB ID"}
             
         imdb_id = show_details['imdb_id']
-        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+        show_title = show_details['title']
         
-        logger.info(f"Accessing TV show page: {show_url}")
+        # Ensure IMDB ID has tt prefix
+        if not imdb_id.startswith('tt'):
+            imdb_id = f"tt{imdb_id}"
+        
+        # Construct the URL with IMDB ID and season
+        show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
+        logger.info(f"Accessing TV show page for {show_title}: {show_url}")
+        
         driver.get(show_url)
         
-        # Handle the TV show page
-        await process_tv_show_page(driver)
-        
-        return {"status": "success"}
+        # Wait for page to load
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+            )
+            logger.info(f"Successfully loaded page for {show_title}")
+            return {"status": "success"}
+            
+        except TimeoutException:
+            logger.error(f"Timeout waiting for TV show page to load: {show_title}")
+            return {"status": "error", "message": "Page load timeout"}
         
     except Exception as e:
         logger.error(f"Error in TV show handler: {e}")
         return {"status": "error", "message": str(e)}
 
 async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
-    """Get IMDB ID for TV show"""
+    """Get IMDB ID for TV show from TMDB API"""
     url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
     
     try:
@@ -1304,18 +1319,20 @@ async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
                 if response.status == 200:
                     data = await response.json()
                     imdb_id = data.get('external_ids', {}).get('imdb_id')
+                    
                     if not imdb_id:
-                        logger.error("No IMDB ID found")
+                        logger.error(f"No IMDB ID found for TMDB ID: {tmdb_id}")
                         return None
                     
+                    logger.info(f"Found IMDB ID {imdb_id} for show: {data['name']}")
                     return {
                         "imdb_id": imdb_id,
                         "title": data['name']
                     }
                     
-        logger.error("Failed to get TV show details from TMDB")
-        return None
-        
+                logger.error(f"TMDB API request failed with status: {response.status}")
+                return None
+                
     except Exception as e:
         logger.error(f"Error fetching TV show details: {e}")
         return None
