@@ -747,43 +747,61 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv' and tmdb_id:
-            # Get IMDB ID from TMDB ID
             imdb_id = get_imdb_id_from_tmdb(tmdb_id)
             if not imdb_id:
                 logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
                 return False
                 
-            # Navigate directly to the show page for the specific season
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(2)
-        else:
-            # For movies, search by title
-            encoded_query = urllib.parse.quote(title)
-            search_url = f"https://debridmediamanager.com/search?query={encoded_query}"
-            driver.get(search_url)
-            time.sleep(2)
-
-        # Use the same selection logic for both movies and TV shows
-        result_boxes = WebDriverWait(driver, 10).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.bg-gray-800.rounded-lg.p-4.mb-4"))
-        )
-        
-        for box in result_boxes:
+            time.sleep(5)  # Increased wait time
+            
+            # Log the page source to see what we're working with
+            logger.debug(f"Page title: {driver.title}")
+            logger.debug("Looking for result boxes...")
+            
+            # Try to find any elements to verify page loaded
             try:
-                if "complete" in box.text.lower():
-                    if prioritize_buttons_in_box(box):
-                        return True
-            except Exception as e:
-                logger.error(f"Error processing result box: {e}")
-                continue
+                # First check if page has loaded at all
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                logger.debug("Page body found")
                 
-        logger.warning(f"No suitable release found for {title}")
-        return False
+                # Look for the specific container that holds the releases
+                containers = driver.find_elements(By.CSS_SELECTOR, "div.bg-gray-800")
+                logger.debug(f"Found {len(containers)} gray containers")
+                
+                for container in containers:
+                    logger.debug(f"Container text: {container.text[:100]}...")  # Log first 100 chars
+                    
+                    # Check if this container has the Instant RD button
+                    buttons = container.find_elements(By.CSS_SELECTOR, "button[title='Instant RD']")
+                    if buttons:
+                        logger.info("Found Instant RD button")
+                        buttons[0].click()
+                        logger.success("Clicked Instant RD button")
+                        time.sleep(1)
+                        return True
+                    else:
+                        logger.debug("No Instant RD button found in this container")
+                
+                logger.warning("No containers with Instant RD buttons found")
+                return False
+                
+            except Exception as e:
+                logger.error(f"Error finding elements: {str(e)}")
+                # Log the current page source when there's an error
+                logger.debug(f"Current page source: {driver.page_source[:500]}...")  # First 500 chars
+                return False
+                
+        else:
+            # Existing movie logic...
+            pass
             
     except Exception as e:
-        logger.error(f"Error in search_on_debrid: {e}")
+        logger.error(f"Error in search_on_debrid: {str(e)}")
         return False
 
 async def get_user_input():
