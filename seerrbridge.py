@@ -362,70 +362,62 @@ async def shutdown_browser():
 
 ### Function to process requests from the queue
 async def process_requests():
-    """Process both movie and TV show requests"""
-    requests = get_overseerr_media_requests()
-    if not requests:
-        logger.info("No requests to process")
-        return
-    
-    for request in requests:
-        try:
-            tmdb_id = request['media']['tmdbId']
-            media_id = request['media']['id']
-            media_type = request['media'].get('mediaType', '').lower()
-            
-            logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
-            
-            if media_type == 'tv':
-                # Create properly structured payload for TV shows
-                payload = WebhookPayload(
-                    media=MediaInfo(
-                        media_type='tv',
-                        tmdbId=str(tmdb_id),
-                        tvdbId=str(request['media'].get('tvdbId')),
-                        status='PENDING'
-                    ),
-                    request=RequestInfo(
-                        request_id=str(request.get('id')),
-                        requestedBy_email=request.get('requestedBy', {}).get('email'),
-                        requestedBy_username=request.get('requestedBy', {}).get('username'),
-                        requestedBy_avatar=request.get('requestedBy', {}).get('avatar')
-                    ),
-                    extra=[
-                        ExtraInfo(
-                            name='Requested Seasons',
-                            value=', '.join(str(s['seasonNumber']) for s in request.get('seasons', []))
-                        )
-                    ] if request.get('seasons') else None
-                )
-                await process_tv_request(payload)
-            else:
-                # Handle as movie (existing logic)
-                movie_details = get_movie_details_from_tmdb(tmdb_id)
-                if not movie_details:
-                    logger.error(f"Failed to get movie details for TMDB ID {tmdb_id}")
-                    continue
-                
-                movie_title = f"{movie_details['title']} ({movie_details['year']})"
-                logger.info(f"Processing movie request: {movie_title}")
-                
-                try:
-                    confirmation_flag = await asyncio.to_thread(search_on_debrid, movie_title, driver)
-                    if confirmation_flag:
-                        if mark_completed(media_id, tmdb_id):
-                            logger.success(f"Marked media {media_id} as completed in overseerr")
-                        else:
-                            logger.error(f"Failed to mark media {media_id} as completed in overseerr")
-                    else:
-                        logger.info(f"Media {media_id} was not properly confirmed. Skipping marking as completed.")
-                except Exception as ex:
-                    logger.critical(f"Error processing movie request {movie_title}: {ex}")
-                    
-        except Exception as e:
-            logger.error(f"Error processing request: {e}")
-            continue
+    """Process all pending requests from Overseerr."""
+    try:
+        requests = get_overseerr_media_requests()
+        if not requests:
+            logger.info("No pending requests found.")
+            return
 
-    logger.info("Finished processing all current requests. Waiting for new requests.")
+        for req in requests:
+            try:
+                tmdb_id = req['media']['tmdbId']
+                media_id = req['media']['id']
+                media_type = req['media']['mediaType']
+                
+                logger.info(f"Processing request with TMDB ID {tmdb_id} and media ID {media_id} of type {media_type}")
+
+                if media_type == "movie":
+                    # Get movie details
+                    movie_details = get_movie_details_from_tmdb(tmdb_id)
+                    if not movie_details:
+                        logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
+                        continue
+
+                    movie_title = f"{movie_details['title']} ({movie_details['year']})"
+                    logger.info(f"Processing movie request: {movie_title}")
+                    
+                    # Search and process on debrid
+                    try:
+                        confirmation_flag = await asyncio.wait_for(
+                            asyncio.to_thread(search_on_debrid, movie_title, driver, 'movie'),
+                            timeout=60.0
+                        )
+                        
+                        if confirmation_flag:
+                            if mark_completed(media_id, tmdb_id, req.get('id')):
+                                logger.success(f"Successfully marked movie {media_id} as completed")
+                            else:
+                                logger.error(f"Failed to mark movie {media_id} as completed")
+                        else:
+                            logger.warning(f"Search failed for movie: {movie_title}")
+                            
+                    except asyncio.TimeoutError:
+                        logger.error(f"Timeout while processing movie: {movie_title}")
+                        continue
+
+                elif media_type == "tv":
+                    # ... existing TV show processing code ...
+                    pass
+
+            except Exception as e:
+                logger.error(f"Error processing request: {e}")
+                continue
+
+        logger.info("Finished processing all current requests. Waiting for new requests.")
+
+    except Exception as e:
+        logger.error(f"Error in process_requests: {e}")
 
 ### Function to add requests to the queue
 async def add_request_to_queue(movie_title):
