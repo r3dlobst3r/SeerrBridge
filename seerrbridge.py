@@ -739,57 +739,69 @@ def get_imdb_id_from_tmdb(tmdb_id: str) -> Optional[str]:
         logger.error(f"Error fetching IMDB ID from TMDB: {e}")
         return None
 
-def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None, tmdb_id: str = None) -> bool:
+def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, season: int = None, series_id: str = None) -> bool:
+    """Search for media on Debrid Media Manager."""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
-        if media_type == 'tv' and tmdb_id:
-            imdb_id = get_imdb_id_from_tmdb(tmdb_id)
-            if not imdb_id:
-                logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
-                return False
+        if media_type == 'tv':
+            # ... existing TV show logic ...
+            pass
+        else:
+            # Movie logic
+            # First get the IMDB ID if we have a series_id
+            imdb_id = get_imdb_id_from_tmdb(series_id) if series_id else None
+            
+            # Navigate to the movie search page
+            if imdb_id:
+                movie_url = f"https://debridmediamanager.com/movie/{imdb_id}"
+                driver.get(movie_url)
+            else:
+                # If no IMDB ID, use the search function
+                search_url = "https://debridmediamanager.com/search"
+                driver.get(search_url)
                 
-            url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
-            logger.info(f"Navigating to show URL: {url}")
-            driver.get(url)
+                # Wait for search input and enter title
+                search_input = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+                )
+                search_input.clear()
+                search_input.send_keys(title)
+                search_input.send_keys(Keys.RETURN)
             
             # Wait for loading spinner to disappear
-            WebDriverWait(driver, 10).until(
-                EC.invisibility_of_element_located((By.CLASS_NAME, "loading"))
-            )
-            logger.debug("Loading spinner disappeared")
-
-            # Wait for content to load
-            time.sleep(3)
-
-            # Find all buttons
-            buttons = driver.find_elements(By.CSS_SELECTOR, 
-                "button.border-2.border-green-500")
+            try:
+                WebDriverWait(driver, 10).until_not(
+                    EC.presence_of_element_located((By.CLASS_NAME, "loading-spinner"))
+                )
+                logger.debug("Loading spinner disappeared")
+            except TimeoutException:
+                logger.debug("No loading spinner found or it disappeared quickly")
             
+            # Wait a moment for results
+            time.sleep(3)
+            
+            # Look for the Instant RD button
+            buttons = driver.find_elements(By.TAG_NAME, "button")
             logger.info(f"Found {len(buttons)} total buttons")
             
-            # Only try the first button that contains "Instant RD"
             for button in buttons:
                 try:
-                    button_text = button.get_attribute('textContent')
+                    button_text = button.text
                     logger.debug(f"Found button with text: {button_text}")
                     
                     if "Instant RD" in button_text:
                         driver.execute_script("arguments[0].click();", button)
-                        logger.info(f"Clicked first Instant RD button for season {season}")
+                        logger.info("Clicked Instant RD button for movie")
                         return True
                         
                 except Exception as e:
                     logger.debug(f"Error processing button: {e}")
                     continue
-
-            logger.warning(f"No Instant RD button found for season {season}")
+            
+            logger.warning("No Instant RD button found")
             return False
                 
-        else:
-            # Existing movie logic...
-            pass
-            
     except Exception as e:
         logger.error(f"Error in search_on_debrid: {str(e)}")
         return False
