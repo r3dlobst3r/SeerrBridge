@@ -1203,7 +1203,7 @@ def search_on_debrid(movie_title, driver):
                             logger.warning(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
                             continue  # Skip this box if none of the variations match
 
-                        # Compare the year with the expected year (allow ±1 year)
+                        # Compare the year with the expected year (allow ��1 year)
                         expected_year = extract_year(movie_title)
                         if expected_year is not None and abs(box_year - expected_year) > 1:
                             logger.warning(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
@@ -1344,7 +1344,63 @@ async def tv_webhook(request: Request):
                     logger.info(f"Navigating to DMM URL: {show_url}")
                     
                     driver.get(show_url)
-                    return {"status": "success", "message": f"Processing {show_title} with IMDB ID {imdb_id}"}
+                    
+                    # Wait for the page to load
+                    try:
+                        WebDriverWait(driver, 15).until(
+                            EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'border-black')]"))
+                        )
+                        logger.info("Page loaded, checking for result boxes...")
+                        
+                        # Find all result boxes
+                        result_boxes = driver.find_elements(By.XPATH, "//div[contains(@class, 'border-black')]")
+                        logger.info(f"Found {len(result_boxes)} result boxes")
+                        
+                        for i, result_box in enumerate(result_boxes, 1):
+                            try:
+                                # Check for Instant RD button
+                                instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                                logger.info(f"Found Instant RD button in box {i}")
+                                
+                                # Click the button
+                                instant_rd_button.click()
+                                logger.success(f"Clicked Instant RD button in box {i}")
+                                
+                                # Wait for button state change
+                                WebDriverWait(driver, 5).until(
+                                    EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (100%)')]"))
+                                )
+                                logger.success(f"Button state changed to RD (100%) in box {i}")
+                                return {"status": "success", "message": f"Processed {show_title}"}
+                                
+                            except NoSuchElementException:
+                                # Try DL with RD button if Instant RD not found
+                                try:
+                                    dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+                                    logger.info(f"Found DL with RD button in box {i}")
+                                    
+                                    # Click the button
+                                    dl_with_rd_button.click()
+                                    logger.success(f"Clicked DL with RD button in box {i}")
+                                    
+                                    # Wait for button state change
+                                    WebDriverWait(driver, 5).until(
+                                        EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (100%)')]"))
+                                    )
+                                    logger.success(f"Button state changed to RD (100%) in box {i}")
+                                    return {"status": "success", "message": f"Processed {show_title}"}
+                                    
+                                except NoSuchElementException:
+                                    logger.warning(f"No RD buttons found in box {i}")
+                                    continue
+                                
+                        logger.warning("No valid RD buttons found in any box")
+                        return {"status": "error", "message": "No valid RD buttons found"}
+                        
+                    except TimeoutException:
+                        logger.error("Timeout waiting for page to load")
+                        return {"status": "error", "message": "Page load timeout"}
+                        
                 else:
                     logger.error(f"TMDB API request failed with status: {response.status}")
                     return {"status": "error", "message": "TMDB API request failed"}
