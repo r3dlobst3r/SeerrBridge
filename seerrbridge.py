@@ -761,19 +761,24 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             )
             logger.debug("Loading spinner disappeared")
 
-            # Find all Instant RD buttons using the exact class combination
+            # Wait for content to load
+            time.sleep(2)
+
+            # Use the exact class combination from the HTML
             buttons = driver.find_elements(By.CSS_SELECTOR, 
-                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100")
+                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100:has(b)")
             
             logger.info(f"Found {len(buttons)} Instant RD buttons")
             
             successful_clicks = 0
             for button in buttons:
                 try:
-                    if "Instant RD" in button.text:
+                    # Verify it's an Instant RD button by checking the text content
+                    if "Instant RD" in button.get_attribute('textContent'):
+                        logger.debug(f"Clicking button with text: {button.get_attribute('textContent')}")
                         button.click()
                         successful_clicks += 1
-                        time.sleep(0.5)  # Small delay between clicks
+                        time.sleep(0.5)
                 except Exception as e:
                     logger.debug(f"Failed to click button: {e}")
                     continue
