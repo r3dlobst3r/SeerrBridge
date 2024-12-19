@@ -658,9 +658,17 @@ def get_media_id_from_request(request_id: str) -> Optional[int]:
 def mark_completed(media_id: int, tmdb_id: str) -> bool:
     """Mark a media request as available in Overseerr."""
     try:
+        # Get environment variables
+        overseerr_url = os.getenv('OVERSEERR_URL')
+        overseerr_api_key = os.getenv('OVERSEERR_API_KEY')
+        
+        if not overseerr_url or not overseerr_api_key:
+            logger.error("Missing required environment variables: OVERSEERR_URL or OVERSEERR_API_KEY")
+            return False
+        
         # Get media details from Overseerr
-        media_url = f"{OVERSEERR_URL}/api/v1/media/{media_id}"
-        headers = {"X-Api-Key": OVERSEERR_API_KEY}
+        media_url = f"{overseerr_url}/api/v1/media/{media_id}"
+        headers = {"X-Api-Key": overseerr_api_key}
         
         response = requests.get(media_url, headers=headers)
         if response.status_code != 200:
@@ -678,7 +686,7 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
             return False
             
         # Mark as available
-        mark_url = f"{OVERSEERR_URL}/api/v1/media/{media_id}/available"
+        mark_url = f"{overseerr_url}/api/v1/media/{media_id}/available"
         response = requests.post(mark_url, headers=headers)
         
         if response.status_code == 200:
