@@ -521,7 +521,7 @@ def normalize_title(title, target_lang='en'):
     # Replace ellipsis with three periods
     title = title.replace('…', '...')
     # Replace smart apostrophes with regular apostrophes
-    title = title.replace('’', "'")
+    title = title.replace('' ', "'")
     # Further normalization can be added here if required
     return title.strip()
     # Translate the title to the target language
@@ -1325,50 +1325,32 @@ async def process_season_box(result_box, season, box_number):
         except NoSuchElementException:
             pass
 
-        # Next priority: Instant RD - using the exact button structure
-        try:
-            # First try finding by exact text content
-            instant_rd_button = result_box.find_element(By.XPATH, ".//button[.//b[text()='Instant RD']]")
-            logger.info(f"Found Instant RD button in box {box_number}")
-            initial_state = instant_rd_button.get_attribute("class")
-            instant_rd_button.click()
-            logger.success(f"Clicked Instant RD button in box {box_number}")
+        # Use the same prioritize_buttons_in_box function that works for movies
+        if prioritize_buttons_in_box(result_box):
+            logger.info(f"Successfully handled buttons in box {box_number}")
             
-            # Wait for state change
-            WebDriverWait(result_box, 5).until(
-                lambda x: instant_rd_button.get_attribute("class") != initial_state
-            )
-            return True
-        except NoSuchElementException:
-            # If that fails, try finding by button text containing Instant RD
+            # Check the result after clicking
             try:
-                instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(., 'Instant RD')]")
-                logger.info(f"Found Instant RD button (alternate method) in box {box_number}")
-                initial_state = instant_rd_button.get_attribute("class")
-                instant_rd_button.click()
-                logger.success(f"Clicked Instant RD button in box {box_number}")
-                
-                WebDriverWait(result_box, 5).until(
-                    lambda x: instant_rd_button.get_attribute("class") != initial_state
+                rd_button = WebDriverWait(result_box, 10).until(
+                    EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (')]"))
                 )
-                return True
-            except NoSuchElementException:
-                logger.debug(f"No Instant RD button found in box {box_number}")
+                rd_button_text = rd_button.text
+                logger.info(f"RD button text after clicking: {rd_button_text}")
 
-        # Last resort: DL with RD
-        try:
-            dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
-            logger.info(f"Found DL with RD button in box {box_number}")
-            initial_state = dl_with_rd_button.get_attribute("class")
-            dl_with_rd_button.click()
-            logger.success(f"Clicked DL with RD button in box {box_number}")
-            
-            WebDriverWait(result_box, 5).until(
-                lambda x: dl_with_rd_button.get_attribute("class") != initial_state
-            )
-            return True
-        except (NoSuchElementException, TimeoutException):
-            pass
+                # If the button is now "RD (0%)", undo the click
+                if "RD (0%)" in rd_button_text:
+                    logger.warning(f"RD (0%) button detected after clicking in box {box_number}. Undoing the click.")
+                    rd_button.click()  # Undo the click
+                    return False
+
+                # If it's "RD (100%)", we're successful
+                if "RD (100%)" in rd_button_text:
+                    logger.success(f"RD (100%) button detected in box {box_number}. Success!")
+                    return True
+
+            except TimeoutException:
+                logger.warning(f"Timeout waiting for RD button status change in box {box_number}")
+                return False
 
         return False
 
