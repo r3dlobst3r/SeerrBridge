@@ -761,40 +761,50 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             )
             logger.debug("Loading spinner disappeared")
 
-            # Wait longer for content to fully load
+            # Wait for content to load
             time.sleep(3)
 
-            # Find all Instant RD buttons
-            buttons = driver.find_elements(By.CSS_SELECTOR, 
-                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100")
-            
-            logger.info(f"Found {len(buttons)} Instant RD buttons")
-            
             successful_clicks = 0
-            for button in buttons:
+            while True:
                 try:
-                    if "Instant" in button.get_attribute('textContent'):
-                        # Use JavaScript to click the button
-                        driver.execute_script("arguments[0].click();", button)
+                    # Find all divs containing buttons
+                    button_containers = driver.find_elements(By.CSS_SELECTOR, 
+                        "div.space-y-2.p-1")
+                    
+                    if not button_containers:
+                        break
                         
-                        # Wait longer for button state to change
+                    found_instant_button = False
+                    for container in button_containers:
                         try:
-                            WebDriverWait(driver, 6).until(
-                                lambda d: "RD (100%)" in d.execute_script(
-                                    "return arguments[0].parentElement.textContent", button
-                                )
-                            )
-                            successful_clicks += 1
-                            logger.debug(f"Successfully triggered download {successful_clicks}")
+                            # Look for an Instant RD button that hasn't been clicked yet
+                            buttons = container.find_elements(By.CSS_SELECTOR, 
+                                "button.border-2.border-green-500")
+                            
+                            for button in buttons:
+                                if "Instant RD" in button.get_attribute('textContent'):
+                                    # Check if this item has already been processed
+                                    if "RD (100%)" not in container.text:
+                                        found_instant_button = True
+                                        driver.execute_script("arguments[0].click();", button)
+                                        successful_clicks += 1
+                                        logger.debug(f"Successfully clicked download {successful_clicks}")
+                                        time.sleep(1)  # Wait between clicks
+                                        break
+                            
+                            if found_instant_button:
+                                break
+                                
                         except Exception as e:
-                            logger.debug(f"Button state did not change after click: {e}")
+                            logger.debug(f"Error processing container: {e}")
                             continue
                             
-                        # Wait longer between clicks
-                        time.sleep(1)
+                    if not found_instant_button:
+                        break
+                        
                 except Exception as e:
-                    logger.debug(f"Failed to click button: {e}")
-                    continue
+                    logger.debug(f"Error in main loop: {e}")
+                    break
 
             if successful_clicks == 0:
                 logger.warning("No successful downloads initiated")
