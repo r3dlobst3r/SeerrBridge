@@ -1426,6 +1426,106 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
         logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
         return False
 
+async def process_tv_request(payload: WebhookPayload):
+    """Process TV show requests separately from movies"""
+    try:
+        # Extract TMDB ID and request_id from the payload
+        tmdb_id = payload.media.tmdbId
+        request_id = payload.request.request_id if hasattr(payload, 'request') else None
+            
+        logger.info(f"Processing TV request for TMDB ID {tmdb_id} with request_id {request_id}")
+        
+        # Get show details from TMDB
+        show_details = get_show_details_from_tmdb(tmdb_id)
+        if not show_details:
+            logger.error(f"Failed to fetch show details for TMDB ID {tmdb_id}")
+            return {"status": "error", "message": "Failed to fetch show details"}
+
+        # Format show title with year
+        show_title = f"{show_details['title']} ({show_details['year']})"
+        imdb_id = show_details.get('imdb_id')
+        
+        if not imdb_id:
+            logger.error(f"No IMDB ID found for show {show_title}")
+            return {"status": "error", "message": "No IMDB ID found"}
+
+        logger.info(f"Processing TV show request: {show_title} (IMDB: {imdb_id})")
+        
+        try:
+            # Navigate directly to the show page using IMDB ID
+            driver.get(f"https://debridmediamanager.com/show/{imdb_id}/1")
+            
+            # Wait for page load and check availability
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+            )
+            
+            # Process similarly to movies but adapted for TV shows
+            if await process_tv_show_page(driver, show_title):
+                if request_id:
+                    media_id = get_media_id_from_request(request_id)
+                    if media_id:
+                        if mark_completed(media_id, tmdb_id):
+                            logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
+                        else:
+                            logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
+                return {"status": "success", "message": "TV show processed successfully"}
+                
+        except Exception as ex:
+            logger.error(f"Error processing TV show {show_title}: {ex}")
+            return {"status": "error", "message": str(ex)}
+                
+    except Exception as e:
+        logger.error(f"Error processing TV show request: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+def get_show_details_from_tmdb(tmdb_id: int) -> Optional[dict]:
+    """Fetch TV show details from TMDB API including IMDB ID"""
+    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "title": data['name'],
+                "year": datetime.strptime(data['first_air_date'], '%Y-%m-%d').year if data.get('first_air_date') else None,
+                "imdb_id": data.get('external_ids', {}).get('imdb_id')
+            }
+        else:
+            logger.error(f"TMDB API request failed with status code {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching show details from TMDB API: {e}")
+        return None
+
+async def process_tv_show_page(driver: webdriver.Chrome, title: str) -> bool:
+    """Process a TV show page similarly to movies but adapted for TV shows"""
+    try:
+        # Wait for status message
+        status_element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+        )
+        status_text = status_element.text
+        
+        if "No results found" in status_text:
+            logger.warning(f"No results found for TV show: {title}")
+            return False
+            
+        # Find and click Instant RD buttons (similar to movie processing)
+        buttons = driver.find_elements(By.TAG_NAME, "button")
+        for button in buttons:
+            if "Instant RD" in button.text:
+                button.click()
+                logger.info(f"Clicked Instant RD button for TV show {title}")
+                time.sleep(2)  # Wait for button state to update
+                
+        return True
+        
+    except Exception as ex:
+        logger.error(f"Error processing TV show page for {title}: {ex}")
+        return False
+
 # Main entry point for running the FastAPI server
 if __name__ == "__main__":
     import uvicorn
