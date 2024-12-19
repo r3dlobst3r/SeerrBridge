@@ -440,22 +440,21 @@ async def process_requests():
         for request in requests:
             try:
                 media = request.get('media', {})
-                media_type = media.get('mediaType')
+                tvdb_id = media.get('tvdbId')
                 tmdb_id = media.get('tmdbId')
                 
-                logger.info(f"Processing request for {media_type} with TMDB ID: {tmdb_id}")
-                
-                if media_type == "tv":
-                    logger.info(f"Routing TV show request for TMDB ID: {tmdb_id}")
+                # If tvdbId exists, it's a TV show
+                if tvdb_id:
+                    logger.info(f"Processing TV show request (TVDB ID: {tvdb_id}, TMDB ID: {tmdb_id})")
                     await tv_webhook(request)
-                elif media_type == "movie":
-                    logger.info(f"Routing movie request for TMDB ID: {tmdb_id}")
-                    await process_movie_request(WebhookPayload(**request))
                 else:
-                    logger.warning(f"Unknown media type: {media_type} for TMDB ID: {tmdb_id}")
+                    logger.info(f"Processing movie request (TMDB ID: {tmdb_id})")
+                    await process_movie_request(WebhookPayload(**request))
+                    
             except Exception as e:
                 logger.error(f"Error processing request: {e}")
                 continue
+                
     except Exception as e:
         logger.error(f"Error in process_requests: {e}")
 
@@ -578,11 +577,15 @@ async def get_overseerr_media_requests():
                     processing_requests = []
                     for request in requests:
                         media = request.get('media', {})
-                        media_type = media.get('mediaType')
                         status = request.get('status')
                         
-                        if status == 1:  # Processing status
-                            logger.info(f"Found {media_type} request for TMDB ID: {media.get('tmdbId')}")
+                        # Check if it's in processing status
+                        if status == 1:
+                            # Determine media type
+                            tvdb_id = media.get('tvdbId')
+                            media_type = "tv" if tvdb_id else media.get('mediaType')
+                            
+                            logger.info(f"Found request - Type: {media_type}, TMDB ID: {media.get('tmdbId')}, TVDB ID: {tvdb_id}")
                             processing_requests.append(request)
                             
                     logger.info(f"Filtered {len(processing_requests)} processing requests")
@@ -1373,50 +1376,37 @@ def schedule_token_refresh():
 ### Background Task to Process Overseerr Requests Periodically ###
 @app.on_event("startup")
 async def startup_event():
-    global processing_task
-    logger.info('Starting SeerrBridge...')
-
-    # Check and refresh access token before any other initialization
-    check_and_refresh_access_token()
-
-    # Always initialize the browser when the bot is ready
+    """Startup event handler"""
     try:
+        logger.info("Starting SeerrBridge...")
+        
+        # Initialize the browser
         await initialize_browser()
-    except Exception as e:
-        logger.error(f"Failed to initialize browser: {e}")
-        return
-
-    # Start the request processing task if not already started
-    if processing_task is None:
-        processing_task = asyncio.create_task(process_requests())
+        
+        # Start the request processing task
         logger.info("Started request processing task.")
-
-    # Schedule the token refresh
-    schedule_token_refresh()
-    scheduler.start()
-    # Ask user if they want to proceed with the initial check and recurring task
-    if ENABLE_AUTOMATIC_BACKGROUND_TASK:
-        user_input = 'y'
-    else: 
+        
+        # Schedule token refresh
+        schedule_token_refresh()
+        
+        # Get user input for recurring check (or auto-yes in Docker)
         user_input = await get_user_input()
-    
-    if user_input == 'y':
-        try:
-            # Run the initial check immediately
-            await process_movie_requests()
-            logger.info("Completed initial check of movie requests.")
-
-            # Schedule the rechecking of movie requests every 2 hours
+        
+        if user_input.lower() == 'y':
+            # Initial check of movie requests
+            try:
+                requests = await get_overseerr_media_requests()
+                if requests:
+                    await process_requests()
+                logger.info("Completed initial check of movie requests.")
+            except Exception as e:
+                logger.error(f"Error while processing movie requests: {e}")
+            
+            # Schedule recurring checks
             schedule_recheck_movie_requests()
-        except Exception as e:
-            logger.error(f"Error while processing movie requests: {e}")
-
-    elif user_input == 'n':
-        logger.info("Initial check and recurring task were skipped by user input.")
-        return  # Exit the function if the user opts out
-
-    else:
-        logger.warning("Invalid input. Please restart the bot and enter 'y' or 'n'.")
+            
+    except Exception as e:
+        logger.error(f"Error in startup event: {e}")
 
 
 def schedule_recheck_movie_requests():
