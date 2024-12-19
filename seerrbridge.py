@@ -742,7 +742,6 @@ def get_imdb_id_from_tmdb(tmdb_id: str) -> Optional[str]:
         return None
 
 def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None, tmdb_id: str = None) -> bool:
-    """Search for content on Debrid Media Manager"""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
@@ -752,63 +751,38 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                 logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
                 return False
                 
-            show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
-            logger.info(f"Navigating to show URL: {show_url}")
-            driver.get(show_url)
-            time.sleep(5)
+            url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
+            logger.info(f"Navigating to show URL: {url}")
+            driver.get(url)
             
-            # Wait for the loading spinner to disappear
-            try:
-                WebDriverWait(driver, 10).until_not(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "div.loading-spinner"))
-                )
-                logger.debug("Loading spinner disappeared")
-            except:
-                logger.debug("No loading spinner found")
-            
-            # Wait for and find buttons using the exact class structure
-            button_selector = "button.border-2.border-green-500.bg-green-900\\/30"
-            try:
-                # Wait for at least one button to be present
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, button_selector))
-                )
-                
-                # Find all matching buttons
-                buttons = driver.find_elements(By.CSS_SELECTOR, button_selector)
-                logger.info(f"Found {len(buttons)} Instant RD buttons")
-                
-                successful_downloads = 0
-                
-                for button in buttons:
-                    try:
-                        # Find the parent row using JavaScript instead of XPath
-                        row = driver.execute_script("return arguments[0].closest('tr')", button)
-                        if not row:
-                            continue
-                            
-                        # Get text content using JavaScript to avoid stale element issues
-                        row_text = driver.execute_script("return arguments[0].textContent", row)
-                        
-                        # Process the row text and click button if it matches criteria
-                        if should_download_torrent(row_text):
-                            button.click()
-                            successful_downloads += 1
-                            time.sleep(1)  # Brief pause between clicks
-                            
-                    except Exception as e:
-                        logger.debug(f"Failed to process button: {str(e)}")
-                        continue
+            # Wait for loading spinner to disappear
+            WebDriverWait(driver, 10).until(
+                EC.invisibility_of_element_located((By.CLASS_NAME, "loading"))
+            )
+            logger.debug("Loading spinner disappeared")
 
-                if successful_downloads == 0:
-                    logger.warning("No successful downloads initiated")
-                    return False
-                    
-                return True
-                
-            except Exception as e:
-                logger.error(f"Error finding/processing buttons: {str(e)}")
+            # Find all Instant RD buttons using the exact class combination
+            buttons = driver.find_elements(By.CSS_SELECTOR, 
+                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100")
+            
+            logger.info(f"Found {len(buttons)} Instant RD buttons")
+            
+            successful_clicks = 0
+            for button in buttons:
+                try:
+                    if "Instant RD" in button.text:
+                        button.click()
+                        successful_clicks += 1
+                        time.sleep(0.5)  # Small delay between clicks
+                except Exception as e:
+                    logger.debug(f"Failed to click button: {e}")
+                    continue
+
+            if successful_clicks == 0:
+                logger.warning("No successful downloads initiated")
                 return False
+
+            return True
                 
         else:
             # Existing movie logic...
