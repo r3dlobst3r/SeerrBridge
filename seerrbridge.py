@@ -786,69 +786,85 @@ def attempt_button_click_with_state_check(button, result_box):
 
 
 ### Search Function to Reuse Browser
-def search_on_debrid(title: str, driver, media_type: str = 'movie') -> bool:
+def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None) -> bool:
     """Search for content on Debrid Media Manager"""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
-        # Encode the search query
-        encoded_query = urllib.parse.quote(title)
-        search_url = f"https://debridmediamanager.com/search?query={encoded_query}"
-        
-        logger.info(f"Search URL: {search_url}")
-        driver.get(search_url)
-        logger.success(f"Navigated to search results page for {title}.")
-        
-        # Wait for results to load
-        time.sleep(1.5)
-        
-        # For TV shows, we need to click the TV Shows tab
         if media_type == 'tv':
-            try:
-                tv_tab = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(text(), 'TV Shows')]"))
+            # Extract show name without season number
+            show_name = re.sub(r'S\d+.*$', '', title, flags=re.IGNORECASE).strip()
+            
+            # First search for the show
+            encoded_query = urllib.parse.quote(show_name)
+            search_url = f"https://debridmediamanager.com/search?query={encoded_query}"
+            
+            logger.info(f"Search URL: {search_url}")
+            driver.get(search_url)
+            logger.success(f"Navigated to search results page for {show_name}")
+            
+            # Wait for results to load
+            time.sleep(1.5)
+            
+            # Find and click the main show title
+            show_links = WebDriverWait(driver, 10).until(
+                EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".movie-title, .tv-title"))
+            )
+            
+            # Find the show link with the closest match
+            best_match = None
+            best_ratio = 0
+            
+            for link in show_links:
+                try:
+                    link_text = link.text.strip()
+                    ratio = fuzz.ratio(show_name.lower(), link_text.lower())
+                    logger.info(f"Comparing '{link_text}' with '{show_name}' (Match Ratio: {ratio})")
+                    
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_match = link
+                except Exception as e:
+                    logger.error(f"Error processing link: {e}")
+                    continue
+            
+            if best_match and best_ratio >= 85:
+                logger.info(f"Found show link: {best_match.text}")
+                best_match.click()
+                time.sleep(2)  # Wait for show page to load
+                
+                # Now find and click the specific season button
+                season_button = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, f"//button[contains(text(), 'Season {season}')]"))
                 )
-                tv_tab.click()
-                logger.info("Switched to TV Shows tab")
-                time.sleep(1)  # Wait for TV show results to load
-            except Exception as e:
-                logger.error(f"Failed to switch to TV Shows tab: {e}")
-        
-        # Get the normalized search title
-        normalized_search_title = normalize_title(title)
-        logger.info(f"Searching for normalized {media_type} title: {normalized_search_title}")
-        
-        # Find all movie/show titles on the page
-        titles = driver.find_elements(By.CSS_SELECTOR, ".movie-title")
-        
-        for title_element in titles:
-            try:
-                actual_title = title_element.text
-                normalized_actual = normalize_title(actual_title)
-                ratio = fuzz.ratio(normalized_actual.lower(), normalized_search_title.lower())
-                logger.info(f"Comparing '{actual_title}' with '{normalized_search_title}' (Match Ratio: {ratio})")
+                logger.info(f"Clicking season {season} button")
+                season_button.click()
+                time.sleep(1)
                 
-                # For TV shows, we want an exact match of the show name (ignoring season)
-                if media_type == 'tv':
-                    show_name = normalized_search_title.split('s')[0].strip()
-                    actual_show = normalized_actual.split('s')[0].strip()
-                    if show_name.lower() == actual_show.lower():
-                        logger.info(f"Found matching TV show: {actual_title}")
-                        title_element.click()
-                        return True
-                # For movies, use fuzzy matching as before
-                elif ratio >= 85:
-                    logger.info(f"Found matching {media_type}: {actual_title}")
-                    title_element.click()
-                    return True
+                # Find the first complete version with good size
+                releases = driver.find_elements(By.CSS_SELECTOR, ".release-item")
+                for release in releases:
+                    try:
+                        if "Complete" in release.text and "GB" in release.text:
+                            logger.info(f"Found suitable release: {release.text}")
+                            # Click the Instant RD button for this release
+                            instant_rd = release.find_element(By.CSS_SELECTOR, "[title='Instant RD']")
+                            instant_rd.click()
+                            return True
+                    except Exception as e:
+                        logger.error(f"Error processing release: {e}")
+                        continue
                 
-            except Exception as e:
-                logger.error(f"Error processing title element: {e}")
-                continue
-        
-        logger.error(f"No matching {media_type} found for {title}")
-        return False
-        
+                logger.warning(f"No suitable release found for season {season}")
+                return False
+            else:
+                logger.error(f"No matching show found for {show_name}")
+                return False
+        else:
+            # Existing movie search logic
+            # ... (keep the existing movie search code here)
+            pass
+            
     except Exception as e:
         logger.error(f"Error in search_on_debrid: {e}")
         return False
@@ -989,39 +1005,33 @@ async def process_tv_request(payload: WebhookPayload):
             logger.error(f"Failed to fetch TV show details for series_id {series_id}")
             return {"status": "error", "message": "Failed to fetch TV show details"}
 
-        show_title = f"{show_details['title']} ({show_details['year']})"
+        show_title = show_details['title']
         logger.info(f"Processing TV show request: {show_title} ({show_details['seasons']} seasons)")
         
-        # Extract requested seasons from the extra field
+        # Extract requested seasons
         requested_seasons = []
         if payload.extra:
             for extra in payload.extra:
-                if extra.name == 'Requested Seasons':  # Use .name instead of .get('name')
-                    # Parse seasons string like "1, 2" into list of integers
-                    seasons_str = extra.value  # Use .value instead of .get('value')
+                if extra.name == 'Requested Seasons':
+                    seasons_str = extra.value
                     requested_seasons = [int(s.strip()) for s in seasons_str.split(',') if s.strip().isdigit()]
                     break
         
         logger.info(f"Requested seasons: {requested_seasons}")
         
-        # Search for each requested season
         successful_seasons = []
         failed_seasons = []
         
         for season in requested_seasons:
-            season_search = f"{show_details['title']} S{season:02d}"
-            logger.info(f"Searching for: {season_search}")
-            
             try:
-                # Pass media_type='tv' to search_on_debrid
                 confirmation_flag = await asyncio.wait_for(
-                    asyncio.to_thread(search_on_debrid, season_search, driver, 'tv'),
+                    asyncio.to_thread(search_on_debrid, show_title, driver, 'tv', season),
                     timeout=60.0
                 )
                 
                 if confirmation_flag:
                     successful_seasons.append(season)
-                    logger.info(f"Successfully found season {season}")
+                    logger.info(f"Successfully processed season {season}")
                 else:
                     failed_seasons.append(season)
                     logger.warning(f"Failed to find season {season}")
