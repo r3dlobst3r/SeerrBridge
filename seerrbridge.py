@@ -1311,7 +1311,7 @@ async def process_season_box(result_box, season, box_number):
     try:
         # First check if this box has RD (0%) - if so, skip it
         try:
-            rd_zero = result_box.find_element(By.XPATH, ".//button[contains(text(), 'RD (0%)')]")
+            rd_zero = result_box.find_element(By.XPATH, ".//button[contains(@class, 'border-red-500') and contains(text(), 'RD (0%)')]")
             logger.info(f"Skipping box {box_number} - has RD (0%)")
             return False
         except NoSuchElementException:
@@ -1319,15 +1319,18 @@ async def process_season_box(result_box, season, box_number):
 
         # Then check for existing RD (100%) button
         try:
-            rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'RD (100%)')]")
+            rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'border-red-500') and contains(text(), 'RD (100%)')]")
             logger.info(f"Found existing RD (100%) button in box {box_number}")
             return True
         except NoSuchElementException:
             pass
 
-        # Next priority: Instant RD
+        # Next priority: Instant RD - using the exact button structure
         try:
-            instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+            instant_rd_button = result_box.find_element(
+                By.XPATH,
+                ".//button[contains(@class, 'border-green-500') and contains(@class, 'bg-green-900/30')]//b[text()='Instant RD']/.."
+            )
             logger.info(f"Found Instant RD button in box {box_number}")
             initial_state = instant_rd_button.get_attribute("class")
             instant_rd_button.click()
@@ -1338,7 +1341,8 @@ async def process_season_box(result_box, season, box_number):
                 lambda x: instant_rd_button.get_attribute("class") != initial_state
             )
             return True
-        except (NoSuchElementException, TimeoutException):
+        except (NoSuchElementException, TimeoutException) as e:
+            logger.debug(f"No Instant RD button in box {box_number}: {str(e)}")
             pass
 
         # Last resort: DL with RD
