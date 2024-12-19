@@ -1253,26 +1253,32 @@ async def jellyseer_webhook(request: Request):
     """Handle incoming webhooks from Jellyseerr/Overseerr"""
     try:
         data = await request.json()
+        logger.info(f"Received webhook data: {data.get('media', {}).get('mediaType')}")
         
-        # First check if it's a TV show
-        if data.get('media', {}).get('mediaType') == "tv":
-            logger.info(f"Received TV show webhook - routing to TV handler")
+        # Check media type and route accordingly
+        media_type = data.get('media', {}).get('mediaType')
+        tmdb_id = data.get('media', {}).get('tmdbId')
+        
+        if media_type == "tv":
+            logger.info(f"Routing TV show request for TMDB ID: {tmdb_id}")
             return await handle_tv_request(data)
-            
-        # If not TV, use existing movie logic unchanged
-        payload = WebhookPayload(**data)
-        return await process_movie_request(payload)
+        elif media_type == "movie":
+            logger.info(f"Routing movie request for TMDB ID: {tmdb_id}")
+            payload = WebhookPayload(**data)
+            return await process_movie_request(payload)
+        else:
+            logger.error(f"Unknown media type: {media_type}")
+            return {"status": "error", "message": "Unknown media type"}
             
     except Exception as e:
         logger.error(f"Error processing webhook: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 async def handle_tv_request(data: dict):
-    """Completely separate handler for TV shows"""
+    """Handle TV show requests using IMDB ID"""
     try:
         tmdb_id = data['media']['tmdbId']
-        season = data['media'].get('seasons', [{}])[0].get('seasonNumber', 1)  # Default to season 1 if not specified
-        logger.info(f"Processing TV show with TMDB ID: {tmdb_id}, Season: {season}")
+        logger.info(f"Starting TV show processing for TMDB ID: {tmdb_id}")
         
         # Get IMDB ID from TMDB
         show_details = await get_tv_show_imdb_id(tmdb_id)
@@ -1286,10 +1292,12 @@ async def handle_tv_request(data: dict):
         # Ensure IMDB ID has tt prefix
         if not imdb_id.startswith('tt'):
             imdb_id = f"tt{imdb_id}"
+            
+        logger.info(f"Found IMDB ID: {imdb_id} for show: {show_title}")
         
-        # Construct the URL with IMDB ID and season
-        show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
-        logger.info(f"Accessing TV show page for {show_title}: {show_url}")
+        # Construct the URL with IMDB ID
+        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+        logger.info(f"Accessing TV show URL: {show_url}")
         
         driver.get(show_url)
         
@@ -1298,7 +1306,7 @@ async def handle_tv_request(data: dict):
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
             )
-            logger.info(f"Successfully loaded page for {show_title}")
+            logger.success(f"Successfully loaded page for {show_title}")
             return {"status": "success"}
             
         except TimeoutException:
