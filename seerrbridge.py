@@ -1203,7 +1203,7 @@ def search_on_debrid(movie_title, driver):
                             logger.warning(f"Title mismatch for box {i}: {title_text_cleaned} or {title_text_normalized} (Expected: {movie_title_cleaned} or {movie_title_normalized}). Skipping.")
                             continue  # Skip this box if none of the variations match
 
-                        # Compare the year with the expected year (allow ��1 year)
+                        # Compare the year with the expected year (allow 1 year)
                         expected_year = extract_year(movie_title)
                         if expected_year is not None and abs(box_year - expected_year) > 1:
                             logger.warning(f"Year mismatch for box {i}: {box_year} (Expected: {expected_year}). Skipping.")
@@ -1358,42 +1358,63 @@ async def tv_webhook(request: Request):
                         
                         for i, result_box in enumerate(result_boxes, 1):
                             try:
-                                # Check for Instant RD button
-                                instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
-                                logger.info(f"Found Instant RD button in box {i}")
-                                
-                                # Click the button
-                                instant_rd_button.click()
-                                logger.success(f"Clicked Instant RD button in box {i}")
-                                
-                                # Wait for button state change
-                                WebDriverWait(driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (100%)')]"))
-                                )
-                                logger.success(f"Button state changed to RD (100%) in box {i}")
-                                return {"status": "success", "message": f"Processed {show_title}"}
-                                
-                            except NoSuchElementException:
-                                # Try DL with RD button if Instant RD not found
+                                # First check for existing RD (100%) button
                                 try:
-                                    dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
-                                    logger.info(f"Found DL with RD button in box {i}")
+                                    rd_100_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-red-900/30')]")
+                                    logger.info(f"Found existing RD (100%) button in box {i}, skipping...")
+                                    continue
+                                except NoSuchElementException:
+                                    pass  # No RD (100%) button found, continue with checks
+                                
+                                # Try Instant RD first
+                                try:
+                                    instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                                    logger.info(f"Found Instant RD button in box {i}")
+                                    
+                                    # Get initial state
+                                    initial_state = instant_rd_button.get_attribute("class")
+                                    logger.info(f"Initial button state: {initial_state}")
                                     
                                     # Click the button
-                                    dl_with_rd_button.click()
-                                    logger.success(f"Clicked DL with RD button in box {i}")
+                                    instant_rd_button.click()
+                                    logger.success(f"Clicked Instant RD button in box {i}")
                                     
-                                    # Wait for button state change
-                                    WebDriverWait(driver, 5).until(
-                                        EC.presence_of_element_located((By.XPATH, ".//button[contains(text(), 'RD (100%)')]"))
+                                    # Wait for state change
+                                    WebDriverWait(result_box, 5).until(
+                                        lambda x: instant_rd_button.get_attribute("class") != initial_state
                                     )
-                                    logger.success(f"Button state changed to RD (100%) in box {i}")
+                                    logger.success(f"Button state changed in box {i}")
                                     return {"status": "success", "message": f"Processed {show_title}"}
                                     
-                                except NoSuchElementException:
-                                    logger.warning(f"No RD buttons found in box {i}")
-                                    continue
+                                except (NoSuchElementException, TimeoutException):
+                                    # Try DL with RD if Instant RD fails
+                                    try:
+                                        dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+                                        logger.info(f"Found DL with RD button in box {i}")
+                                        
+                                        # Get initial state
+                                        initial_state = dl_with_rd_button.get_attribute("class")
+                                        logger.info(f"Initial button state: {initial_state}")
+                                        
+                                        # Click the button
+                                        dl_with_rd_button.click()
+                                        logger.success(f"Clicked DL with RD button in box {i}")
+                                        
+                                        # Wait for state change
+                                        WebDriverWait(result_box, 5).until(
+                                            lambda x: dl_with_rd_button.get_attribute("class") != initial_state
+                                        )
+                                        logger.success(f"Button state changed in box {i}")
+                                        return {"status": "success", "message": f"Processed {show_title}"}
+                                        
+                                    except (NoSuchElementException, TimeoutException):
+                                        logger.warning(f"No valid RD buttons found in box {i}")
+                                        continue
                                 
+                            except Exception as e:
+                                logger.warning(f"Error processing box {i}: {str(e)}")
+                                continue
+                        
                         logger.warning("No valid RD buttons found in any box")
                         return {"status": "error", "message": "No valid RD buttons found"}
                         
