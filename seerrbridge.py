@@ -1318,6 +1318,13 @@ async def tv_webhook(request: Request):
         # Debug log the incoming request data
         logger.info(f"Received webhook data: {data}")
         
+        request_id = data.get('requestId')  # Try to get requestId directly
+        if not request_id:
+            # If not found directly, try to get it from the request object
+            request_id = data.get('id')
+            
+        logger.info(f"Processing request ID: {request_id}")
+        
         tmdb_id = data.get('media', {}).get('tmdbId')
         logger.info(f"Processing TV show TMDB ID: {tmdb_id}")
         
@@ -1383,10 +1390,16 @@ async def tv_webhook(request: Request):
                                     # Try Instant RD first
                                     try:
                                         instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'Instant RD')]")
+                                        logger.info(f"Found Instant RD button in box {i}")
+                                        
+                                        # Get initial state
                                         initial_state = instant_rd_button.get_attribute("class")
+                                        
+                                        # Click the button
                                         instant_rd_button.click()
                                         logger.success(f"Clicked Instant RD button for Season {season} in box {i}")
                                         
+                                        # Wait for state change
                                         WebDriverWait(result_box, 5).until(
                                             lambda x: instant_rd_button.get_attribute("class") != initial_state
                                         )
@@ -1394,9 +1407,11 @@ async def tv_webhook(request: Request):
                                         break
                                         
                                     except (NoSuchElementException, TimeoutException):
-                                        # Try DL with RD if Instant RD fails
+                                        # Only try DL with RD if Instant RD is not available
                                         try:
                                             dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+                                            logger.info(f"Found DL with RD button in box {i}")
+                                            
                                             initial_state = dl_with_rd_button.get_attribute("class")
                                             dl_with_rd_button.click()
                                             logger.success(f"Clicked DL with RD button for Season {season} in box {i}")
@@ -1427,13 +1442,11 @@ async def tv_webhook(request: Request):
                     # Update Overseerr status based on processed seasons
                     if successful_seasons:
                         if len(successful_seasons) == total_seasons:
-                            # All seasons processed successfully
-                            await update_overseerr_status(data, "available")
+                            await update_overseerr_status({"id": request_id}, "available")
                             logger.success(f"All {total_seasons} seasons processed successfully")
                         else:
-                            # Only some seasons processed
                             seasons_str = ", ".join(str(s) for s in successful_seasons)
-                            await update_overseerr_status(data, "partial", f"Seasons {seasons_str} available")
+                            await update_overseerr_status({"id": request_id}, "partial", f"Seasons {seasons_str} available")
                             logger.warning(f"Partially processed. Seasons {seasons_str} available")
                         
                         return {
@@ -1442,7 +1455,7 @@ async def tv_webhook(request: Request):
                             "seasons_processed": successful_seasons
                         }
                     else:
-                        await update_overseerr_status(data, "failed")
+                        await update_overseerr_status({"id": request_id}, "failed")
                         return {"status": "error", "message": "No seasons could be processed"}
                         
                 else:
