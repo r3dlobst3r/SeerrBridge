@@ -308,7 +308,7 @@ async def initialize_browser():
 
             logger.info("Attempting to click the '⚙️ Settings' link.")
             settings_link = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙��� Settings')]"))
+                EC.element_to_be_clickable((By.XPATH, "//span[contains(text(),'⚙️ Settings')]"))
             )
             settings_link.click()
             logger.info("Clicked on '⚙️ Settings' link.")
@@ -669,30 +669,24 @@ def mark_completed(media_id: int, tmdb_id: str) -> bool:
         # Remove trailing slash if present
         overseerr_url = overseerr_url.rstrip('/')
         
-        # Get media details from Overseerr
-        media_url = f"{overseerr_url}/api/v1/media/{media_id}"
-        headers = {"X-Api-Key": overseerr_api_key}
+        # The correct endpoint for marking media as available
+        mark_url = f"{overseerr_url}/api/v1/request/{media_id}"
+        headers = {
+            "X-Api-Key": overseerr_api_key,
+            "Content-Type": "application/json"
+        }
         
-        logger.debug(f"Sending GET request to: {media_url}")
-        response = requests.get(media_url, headers=headers)
-        if response.status_code != 200:
-            logger.error(f"Failed to get media details from Overseerr: {response.status_code}")
-            return False
-            
-        media_data = response.json()
+        # The payload for marking as available
+        data = {
+            "status": "available",
+            "mediaType": "tv"  # or 'movie' depending on the type
+        }
         
-        # Convert both TMDb IDs to strings for comparison
-        media_tmdb_id = str(media_data.get('mediaInfo', {}).get('tmdbId', ''))
-        requested_tmdb_id = str(tmdb_id)
+        logger.debug(f"Sending PUT request to: {mark_url}")
+        logger.debug(f"With payload: {data}")
         
-        if media_tmdb_id != requested_tmdb_id:
-            logger.error(f"TMDB ID mismatch for media {media_id}. Expected {requested_tmdb_id}, got {media_tmdb_id}")
-            return False
-            
-        # Mark as available
-        mark_url = f"{overseerr_url}/api/v1/media/{media_id}/available"
-        logger.debug(f"Sending POST request to: {mark_url}")
-        response = requests.post(mark_url, headers=headers)
+        # Use PUT request instead of POST
+        response = requests.put(mark_url, headers=headers, json=data)
         
         if response.status_code == 200:
             logger.success(f"Successfully marked media {media_id} as available")
