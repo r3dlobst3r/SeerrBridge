@@ -755,7 +755,7 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(5)  # Initial wait
+            time.sleep(5)
             
             # Wait for the loading spinner to disappear
             try:
@@ -766,59 +766,59 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             except:
                 logger.debug("No loading spinner found")
             
-            # Find all rows with Instant RD buttons
+            # Wait for and find buttons using the exact class structure
+            button_selector = "button.border-2.border-green-500.bg-green-900\\/30"
             try:
-                # Wait for table rows to be present
+                # Wait for at least one button to be present
                 WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//tr[.//button[contains(text(), '⚡')]]"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, button_selector))
                 )
                 
-                # Get all rows containing Instant RD buttons
-                rows = driver.find_elements(By.XPATH, "//tr[.//button[contains(text(), '⚡')]]")
-                logger.info(f"Found {len(rows)} rows with Instant RD buttons")
+                # Find all matching buttons
+                buttons = driver.find_elements(By.CSS_SELECTOR, button_selector)
+                logger.info(f"Found {len(buttons)} Instant RD buttons")
                 
-                if rows:
-                    # Sort rows by size (assuming size is in the second column)
-                    for row in rows:
+                if buttons:
+                    for button in buttons:
                         try:
-                            # Get the Instant RD button in this row
-                            button = row.find_element(By.XPATH, ".//button[contains(text(), '⚡')]")
-                            
-                            # Get size info (adjust column index if needed)
-                            size_text = row.find_elements(By.TAG_NAME, "td")[1].text
-                            logger.debug(f"Found torrent with size: {size_text}")
-                            
-                            # Scroll the row into view
-                            driver.execute_script("arguments[0].scrollIntoView(true);", row)
-                            time.sleep(1)
-                            
-                            # Click the button using JavaScript
-                            driver.execute_script("arguments[0].click();", button)
-                            logger.info("Clicked Instant RD button")
-                            
-                            # Wait for success indicator (adjust selector as needed)
-                            try:
-                                WebDriverWait(driver, 5).until(
-                                    EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Success')]"))
-                                )
-                                logger.success("Download initiated successfully")
-                                return True
-                            except:
-                                logger.warning("No success confirmation found, trying next button")
-                                continue
-                            
+                            # Verify button text contains "Instant RD"
+                            if "Instant RD" in button.text:
+                                # Get parent row for size info
+                                row = button.find_element(By.XPATH, "./ancestor::tr")
+                                size_cell = row.find_elements(By.TAG_NAME, "td")[1]
+                                logger.debug(f"Found torrent with size: {size_cell.text}")
+                                
+                                # Scroll into view
+                                driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                                time.sleep(1)
+                                
+                                # Click using JavaScript
+                                driver.execute_script("arguments[0].click();", button)
+                                logger.info("Clicked Instant RD button")
+                                
+                                # Wait for success indicator
+                                try:
+                                    WebDriverWait(driver, 5).until(
+                                        EC.presence_of_element_located((By.CSS_SELECTOR, "div.text-green-500"))
+                                    )
+                                    logger.success("Download initiated successfully")
+                                    return True
+                                except:
+                                    logger.warning("No success confirmation found, trying next button")
+                                    continue
+                                
                         except Exception as e:
-                            logger.debug(f"Failed to process row: {str(e)}")
+                            logger.debug(f"Failed to process button: {str(e)}")
                             continue
                     
                     logger.warning("No successful downloads initiated")
                     return False
                 else:
-                    logger.warning("No rows with Instant RD buttons found")
+                    logger.warning("No Instant RD buttons found")
                     return False
                     
             except Exception as e:
-                logger.error(f"Error finding/processing rows: {str(e)}")
+                logger.error(f"Error finding/processing buttons: {str(e)}")
                 return False
                 
         else:
