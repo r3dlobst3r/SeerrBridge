@@ -757,27 +757,47 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(2)  # Wait for page to load
+            time.sleep(3)  # Increased wait time for page load
             
-            # Find all result boxes
-            result_boxes = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.bg-gray-800.rounded-lg.p-4.mb-4"))
-            )
-            
-            for box in result_boxes:
-                try:
-                    # Check if this is a complete release
-                    if "Complete" in box.text:
-                        # Try to click the Instant RD button in this box
-                        if prioritize_buttons_in_box(box):
-                            logger.success(f"Successfully processed release for season {season}")
+            try:
+                # Wait for and find all release boxes
+                logger.info("Looking for release boxes...")
+                release_boxes = WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.bg-gray-800.rounded-lg.p-4.mb-4"))
+                )
+                logger.info(f"Found {len(release_boxes)} release boxes")
+                
+                for box in release_boxes:
+                    try:
+                        # Get the title text
+                        title_element = box.find_element(By.CSS_SELECTOR, "div.text-lg.font-bold")
+                        title_text = title_element.text
+                        logger.info(f"Processing release: {title_text}")
+                        
+                        # Look for Complete and quality indicators
+                        if "Complete" in title_text and any(q in title_text for q in ["2160p", "1080p", "BluRay"]):
+                            logger.info(f"Found suitable release: {title_text}")
+                            
+                            # Try to find the Instant RD button
+                            instant_rd = box.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
+                            logger.info("Found Instant RD button")
+                            
+                            # Click the button
+                            instant_rd.click()
+                            logger.success(f"Clicked Instant RD for: {title_text}")
+                            time.sleep(1)
                             return True
-                except Exception as e:
-                    logger.error(f"Error processing result box: {e}")
-                    continue
-            
-            logger.warning(f"No suitable release found for season {season}")
-            return False
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing box: {str(e)}")
+                        continue
+                
+                logger.warning(f"No suitable release found for season {season}")
+                return False
+                
+            except Exception as e:
+                logger.error(f"Error finding release boxes: {str(e)}")
+                return False
                 
         else:
             # Existing movie search logic
@@ -785,7 +805,7 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             pass
             
     except Exception as e:
-        logger.error(f"Error in search_on_debrid: {e}")
+        logger.error(f"Error in search_on_debrid: {str(e)}")
         return False
 
 async def get_user_input():
