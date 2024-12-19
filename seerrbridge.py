@@ -745,84 +745,48 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv':
-            # ... existing TV show logic ...
-            pass
+            # TV show logic
+            search_url = "https://debridmediamanager.com/search"
+            driver.get(search_url)
+            
+            # Format search term for TV show
+            search_term = f"{title} S{season:02d}"
+            
+            # Wait for search input and enter search term
+            search_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+            )
+            search_input.clear()
+            search_input.send_keys(search_term)
+            search_input.send_keys(Keys.RETURN)
+            
+            # Rest of TV show logic...
+            
         else:
-            try:
-                # Navigate to search page
-                search_url = "https://debridmediamanager.com/search"
-                logger.debug(f"Navigating to search URL: {search_url}")
-                driver.get(search_url)
-                
-                # Wait for search input
-                logger.debug("Waiting for search input field...")
-                search_input = WebDriverWait(driver, 20).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text'], input[type='search']"))
-                )
-                logger.debug("Found search input field")
-                
-                # Clear and enter search
-                search_input.clear()
-                search_input.send_keys(title)
-                logger.debug(f"Entered search term: {title}")
-                search_input.send_keys(Keys.RETURN)
-                logger.debug("Submitted search")
-                
-                # Wait for loading spinner to disappear
-                logger.debug("Waiting for loading spinner to disappear...")
-                try:
-                    WebDriverWait(driver, 10).until_not(
-                        EC.presence_of_element_located((By.CLASS_NAME, "loading-spinner"))
-                    )
-                    logger.debug("Loading spinner disappeared")
-                except TimeoutException:
-                    logger.debug("No loading spinner found or it disappeared quickly")
-                
-                # Wait for movie cards to appear
-                logger.debug("Waiting for movie cards to appear...")
-                try:
-                    WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.CLASS_NAME, "movie-card"))
-                    )
-                    logger.debug("Movie cards found")
-                    
-                    # Wait a moment for buttons to be clickable
-                    time.sleep(1)
-                    
-                    # Look for the Instant RD button within movie cards
-                    movie_cards = driver.find_elements(By.CLASS_NAME, "movie-card")
-                    logger.info(f"Found {len(movie_cards)} movie cards")
-                    
-                    for card in movie_cards:
-                        try:
-                            # Try to find button within this card
-                            buttons = card.find_elements(By.TAG_NAME, "button")
-                            for button in buttons:
-                                button_text = button.text
-                                logger.debug(f"Found button with text: {button_text}")
-                                
-                                if "Instant RD" in button_text:
-                                    logger.debug("Found Instant RD button, attempting to click...")
-                                    driver.execute_script("arguments[0].click();", button)
-                                    logger.info("Clicked Instant RD button for movie")
-                                    return True
-                        except Exception as e:
-                            logger.debug(f"Error processing card: {e}")
-                            continue
-                    
-                    logger.warning("No Instant RD button found in any movie card")
-                    return False
-                    
-                except TimeoutException:
-                    logger.warning("No movie cards found after search")
-                    return False
-                    
-            except TimeoutException as e:
-                logger.error(f"Timeout waiting for element: {e}")
-                return False
-            except Exception as e:
-                logger.error(f"Error during movie search: {e}")
-                return False
+            # Original working movie logic
+            search_url = "https://debridmediamanager.com/search"
+            driver.get(search_url)
+            
+            search_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+            )
+            search_input.clear()
+            search_input.send_keys(title)
+            search_input.send_keys(Keys.RETURN)
+            
+            # Wait for results
+            time.sleep(2)
+            
+            # Click Instant RD button if found
+            buttons = driver.find_elements(By.TAG_NAME, "button")
+            for button in buttons:
+                if "Instant RD" in button.text:
+                    button.click()
+                    logger.info("Clicked Instant RD button for movie")
+                    return True
+            
+            logger.warning("No Instant RD button found")
+            return False
                 
     except Exception as e:
         logger.error(f"Error in search_on_debrid: {str(e)}")
