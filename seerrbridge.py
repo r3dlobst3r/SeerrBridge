@@ -439,14 +439,17 @@ async def process_requests():
             
         for request in requests:
             try:
-                media_type = request.get('media', {}).get('mediaType')
-                tmdb_id = request.get('media', {}).get('tmdbId')
+                media = request.get('media', {})
+                media_type = media.get('mediaType')
+                tmdb_id = media.get('tmdbId')
+                
+                logger.info(f"Processing request for {media_type} with TMDB ID: {tmdb_id}")
                 
                 if media_type == "tv":
-                    logger.info(f"Processing TV show request for TMDB ID: {tmdb_id}")
+                    logger.info(f"Routing TV show request for TMDB ID: {tmdb_id}")
                     await tv_webhook(request)
                 elif media_type == "movie":
-                    logger.info(f"Processing movie request for TMDB ID: {tmdb_id}")
+                    logger.info(f"Routing movie request for TMDB ID: {tmdb_id}")
                     await process_movie_request(WebhookPayload(**request))
                 else:
                     logger.warning(f"Unknown media type: {media_type} for TMDB ID: {tmdb_id}")
@@ -558,27 +561,39 @@ def replace_words_with_numbers(title):
 
 
 # Function to fetch media requests from Overseerr
-def get_overseerr_media_requests() -> list[dict]:
-    url = f"{OVERSEERR_API_BASE_URL}/request?take=500&filter=approved&sort=added"
-    headers = {
-        "X-Api-Key": OVERSEERR_API_KEY
-    }
-    response = requests.get(url, headers=headers)
-    
-    if response.status_code != 200:
-        logger.error(f"Failed to fetch requests from Overseerr: {response.status_code}")
-        return []
-    
-    data = response.json()
-    logger.info(f"Fetched {len(data.get('results', []))} requests from Overseerr")
-    
-    if not data.get('results'):
-        return []
-    
-    # Filter requests that are in processing state (status 3)
-    processing_requests = [item for item in data['results'] if item['status'] == 2 and item['media']['status'] == 3]
-    logger.info(f"Filtered {len(processing_requests)} processing requests")
-    return processing_requests
+async def get_overseerr_media_requests():
+    """Get media requests from Overseerr"""
+    try:
+        url = f"{OVERSEERR_API_BASE_URL}/request?take=100&skip=0&filter=processing"
+        headers = {"X-Api-Key": OVERSEERR_API_KEY}
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    requests = data.get('results', [])
+                    logger.info(f"Fetched {len(requests)} requests from Overseerr")
+                    
+                    # Filter requests that are in "processing" state
+                    processing_requests = []
+                    for request in requests:
+                        media = request.get('media', {})
+                        media_type = media.get('mediaType')
+                        status = request.get('status')
+                        
+                        if status == 1:  # Processing status
+                            logger.info(f"Found {media_type} request for TMDB ID: {media.get('tmdbId')}")
+                            processing_requests.append(request)
+                            
+                    logger.info(f"Filtered {len(processing_requests)} processing requests")
+                    return processing_requests
+                else:
+                    logger.error(f"Failed to fetch requests from Overseerr. Status code: {response.status}")
+                    return None
+                    
+    except Exception as e:
+        logger.error(f"Error fetching Overseerr requests: {e}")
+        return None
 
 # Trakt API rate limit: 1000 calls every 5 minutes
 TRAKT_RATE_LIMIT = 1000
