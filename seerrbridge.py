@@ -764,20 +764,32 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             # Wait for content to load
             time.sleep(2)
 
-            # Use the exact class combination from the HTML
+            # Find all Instant RD buttons
             buttons = driver.find_elements(By.CSS_SELECTOR, 
-                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100:has(b)")
+                "button.border-2.border-green-500.bg-green-900\\/30.text-green-100")
             
             logger.info(f"Found {len(buttons)} Instant RD buttons")
             
             successful_clicks = 0
             for button in buttons:
                 try:
-                    # Verify it's an Instant RD button by checking the text content
-                    if "Instant RD" in button.get_attribute('textContent'):
-                        logger.debug(f"Clicking button with text: {button.get_attribute('textContent')}")
-                        button.click()
-                        successful_clicks += 1
+                    if "Instant" in button.get_attribute('textContent'):
+                        # Use JavaScript to click the button
+                        driver.execute_script("arguments[0].click();", button)
+                        
+                        # Wait for button text to change to "RD (100%)"
+                        try:
+                            WebDriverWait(driver, 3).until(
+                                lambda d: "RD (100%)" in d.execute_script(
+                                    "return arguments[0].textContent", button
+                                )
+                            )
+                            successful_clicks += 1
+                            logger.debug(f"Successfully triggered download {successful_clicks}")
+                        except Exception as e:
+                            logger.debug(f"Button state did not change after click: {e}")
+                            continue
+                            
                         time.sleep(0.5)
                 except Exception as e:
                     logger.debug(f"Failed to click button: {e}")
