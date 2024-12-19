@@ -755,7 +755,9 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(3)  # Initial wait
+            
+            # Wait for page load and content
+            time.sleep(5)  # Increased initial wait
             
             # Wait for the loading spinner to disappear
             try:
@@ -766,35 +768,48 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             except:
                 logger.debug("No loading spinner found")
             
-            # Wait for any content to load
-            time.sleep(2)
+            # Try multiple selectors to find the buttons
+            selectors = [
+                "button:contains('⚡')",  # jQuery-style contains
+                "//button[contains(., '⚡')]",  # XPath contains
+                "//button[contains(text(), 'Instant RD')]",  # XPath text contains
+                "button.instant-rd-button",  # CSS class (if it exists)
+            ]
             
-            try:
-                # Find all Instant RD buttons
-                instant_rd_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), '⚡Instant RD')]")
-                logger.info(f"Found {len(instant_rd_buttons)} Instant RD buttons")
-                
-                if instant_rd_buttons:
-                    # Click the first available Instant RD button
-                    for button in instant_rd_buttons:
-                        try:
-                            driver.execute_script("arguments[0].click();", button)
-                            logger.info("Clicked Instant RD button")
-                            time.sleep(2)  # Wait for processing
-                            return True
-                        except Exception as e:
-                            logger.warning(f"Failed to click button: {str(e)}")
-                            continue
-                    
-                    logger.warning("No clickable Instant RD buttons found")
-                    return False
-                else:
-                    logger.warning("No Instant RD buttons found")
-                    return False
-                    
-            except Exception as e:
-                logger.error(f"Error processing Instant RD buttons: {str(e)}")
-                return False
+            for selector in selectors:
+                try:
+                    if selector.startswith("//"):
+                        buttons = driver.find_elements(By.XPATH, selector)
+                    else:
+                        buttons = driver.find_elements(By.CSS_SELECTOR, selector)
+                        
+                    if buttons:
+                        logger.info(f"Found {len(buttons)} buttons using selector: {selector}")
+                        # Try to click each button until one works
+                        for button in buttons:
+                            try:
+                                # Scroll the button into view
+                                driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                                time.sleep(0.5)
+                                
+                                # Try both click methods
+                                try:
+                                    button.click()
+                                except:
+                                    driver.execute_script("arguments[0].click();", button)
+                                    
+                                logger.info("Successfully clicked button")
+                                time.sleep(2)  # Wait for action to complete
+                                return True
+                            except Exception as e:
+                                logger.debug(f"Failed to click button: {str(e)}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"Selector {selector} failed: {str(e)}")
+                    continue
+            
+            logger.warning("No clickable buttons found with any selector")
+            return False
                 
         else:
             # Existing movie logic...
