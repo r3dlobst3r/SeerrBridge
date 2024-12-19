@@ -1374,12 +1374,8 @@ async def tv_webhook(request: Request):
         # Debug log the incoming request data
         logger.info(f"Received webhook data: {data}")
         
-        # Extract request ID from the media requests array
-        request_id = None
-        media = data.get('media', {})
-        requests = media.get('requests', [])
-        if requests and len(requests) > 0:
-            request_id = requests[0].get('id')
+        # Extract request ID from the request object
+        request_id = data.get('request', {}).get('request_id')
             
         logger.info(f"Extracted request ID: {request_id}")
         
@@ -1389,6 +1385,9 @@ async def tv_webhook(request: Request):
 
         tmdb_id = data.get('media', {}).get('tmdbId')
         logger.info(f"Processing TV show TMDB ID: {tmdb_id}")
+        
+        # Store request ID for later use
+        request_data = {"id": request_id}
         
         # Get IMDB ID and show details from TMDB
         url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
@@ -1448,14 +1447,14 @@ async def tv_webhook(request: Request):
                             logger.error(f"Timeout waiting for Season {season} page to load")
                             continue
                     
-                    # Update Overseerr status
+                    # Update Overseerr status based on processed seasons
                     if successful_seasons:
                         if len(successful_seasons) == total_seasons:
-                            await update_overseerr_status({"id": request_id}, "available")
+                            await update_overseerr_status(request_data, "available")
                             logger.success(f"All {total_seasons} seasons processed successfully")
                         else:
                             seasons_str = ", ".join(str(s) for s in successful_seasons)
-                            await update_overseerr_status({"id": request_id}, "partial", f"Seasons {seasons_str} available")
+                            await update_overseerr_status(request_data, "partial", f"Seasons {seasons_str} available")
                             logger.warning(f"Partially processed. Seasons {seasons_str} available")
                         
                         return {
@@ -1464,7 +1463,7 @@ async def tv_webhook(request: Request):
                             "seasons_processed": successful_seasons
                         }
                     else:
-                        await update_overseerr_status({"id": request_id}, "failed")
+                        await update_overseerr_status(request_data, "failed")
                         return {"status": "error", "message": "No seasons could be processed"}
                         
                 else:
