@@ -750,24 +750,32 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
         else:
             # Movie logic
             try:
-                # Navigate to the search page
-                search_url = "https://debridmediamanager.com/search"
-                logger.debug(f"Navigating to search URL: {search_url}")
-                driver.get(search_url)
-                
-                # Wait for search input with explicit logging
-                logger.debug("Waiting for search input field...")
-                search_input = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-                )
-                logger.debug("Found search input field")
-                
-                # Clear and enter search
-                search_input.clear()
-                search_input.send_keys(title)
-                logger.debug(f"Entered search term: {title}")
-                search_input.send_keys(Keys.RETURN)
-                logger.debug("Submitted search")
+                # Get IMDB ID from TMDB ID
+                imdb_id = get_imdb_id_from_tmdb(series_id)
+                if imdb_id:
+                    # Use direct movie URL
+                    movie_url = f"https://debridmediamanager.com/movie/{imdb_id}"
+                    logger.debug(f"Navigating to movie URL: {movie_url}")
+                    driver.get(movie_url)
+                else:
+                    # Fallback to search
+                    search_url = "https://debridmediamanager.com/search"
+                    logger.debug(f"IMDB ID not found, falling back to search URL: {search_url}")
+                    driver.get(search_url)
+                    
+                    # Wait for search input with longer timeout
+                    logger.debug("Waiting for search input field...")
+                    search_input = WebDriverWait(driver, 20).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text'], input[type='search']"))
+                    )
+                    logger.debug("Found search input field")
+                    
+                    # Clear and enter search
+                    search_input.clear()
+                    search_input.send_keys(title)
+                    logger.debug(f"Entered search term: {title}")
+                    search_input.send_keys(Keys.RETURN)
+                    logger.debug("Submitted search")
                 
                 # Wait for loading spinner to disappear
                 logger.debug("Waiting for loading spinner to disappear...")
@@ -779,18 +787,13 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
                 except TimeoutException:
                     logger.debug("No loading spinner found or it disappeared quickly")
                 
-                # Wait for results with explicit wait
-                logger.debug("Waiting for results to load...")
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, ".movie-card, .no-results"))
-                )
-                logger.debug("Results or no-results element found")
+                # Wait a moment for results
+                time.sleep(3)
+                logger.debug("Waited 3 seconds for results to load")
                 
                 # Look for the Instant RD button
                 logger.debug("Looking for Instant RD button...")
-                buttons = WebDriverWait(driver, 5).until(
-                    EC.presence_of_all_elements_located((By.TAG_NAME, "button"))
-                )
+                buttons = driver.find_elements(By.TAG_NAME, "button")
                 logger.info(f"Found {len(buttons)} total buttons")
                 
                 for button in buttons:
