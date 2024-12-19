@@ -745,51 +745,80 @@ def search_on_debrid(title: str, driver: webdriver.Chrome, media_type: str, seas
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv':
-            # TV show logic
-            search_url = "https://debridmediamanager.com/search"
-            driver.get(search_url)
-            
-            # Format search term for TV show
-            search_term = f"{title} S{season:02d}"
-            
-            # Wait for search input and enter search term
-            search_input = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-            )
-            search_input.clear()
-            search_input.send_keys(search_term)
-            search_input.send_keys(Keys.RETURN)
-            
-            # Rest of TV show logic...
-            
+            # TV show logic here
+            pass
         else:
-            # Original working movie logic
-            search_url = "https://debridmediamanager.com/search"
-            driver.get(search_url)
-            
-            search_input = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
-            )
-            search_input.clear()
-            search_input.send_keys(title)
-            search_input.send_keys(Keys.RETURN)
-            
-            # Wait for results
-            time.sleep(2)
-            
-            # Click Instant RD button if found
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            for button in buttons:
-                if "Instant RD" in button.text:
-                    button.click()
-                    logger.info("Clicked Instant RD button for movie")
-                    return True
-            
-            logger.warning("No Instant RD button found")
-            return False
+            # Movie logic with better error handling
+            try:
+                logger.debug("Navigating to search page...")
+                search_url = "https://debridmediamanager.com/search"
+                driver.get(search_url)
                 
-    except Exception as e:
-        logger.error(f"Error in search_on_debrid: {str(e)}")
+                # Take screenshot for debugging
+                driver.save_screenshot("/tmp/search_page.png")
+                logger.debug("Saved screenshot of search page")
+                
+                logger.debug("Looking for search input...")
+                try:
+                    search_input = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='search']"))
+                    )
+                except TimeoutException:
+                    logger.error("Search input not found, trying alternative selector...")
+                    search_input = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='text']"))
+                    )
+                
+                logger.debug("Found search input, clearing and entering text...")
+                search_input.clear()
+                search_input.send_keys(title)
+                
+                logger.debug("Pressing Enter...")
+                search_input.send_keys(Keys.RETURN)
+                
+                # Wait for results with explicit logging
+                logger.debug("Waiting for results to load...")
+                time.sleep(2)
+                
+                # Take screenshot after search
+                driver.save_screenshot("/tmp/search_results.png")
+                logger.debug("Saved screenshot of search results")
+                
+                # Look for buttons with detailed logging
+                logger.debug("Looking for buttons...")
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                logger.debug(f"Found {len(buttons)} buttons")
+                
+                for button in buttons:
+                    try:
+                        button_text = button.text
+                        logger.debug(f"Button text: '{button_text}'")
+                        
+                        if "Instant RD" in button_text:
+                            logger.info("Found Instant RD button, clicking...")
+                            try:
+                                button.click()
+                                logger.success("Successfully clicked Instant RD button")
+                                return True
+                            except Exception as click_error:
+                                logger.error(f"Failed to click button: {click_error}")
+                                # Try JavaScript click as fallback
+                                driver.execute_script("arguments[0].click();", button)
+                                logger.success("Successfully clicked button using JavaScript")
+                                return True
+                    except Exception as button_error:
+                        logger.error(f"Error processing button: {button_error}")
+                        continue
+                
+                logger.warning("No Instant RD button found in any buttons")
+                return False
+                
+            except Exception as inner_error:
+                logger.error(f"Error during movie search: {inner_error}")
+                return False
+                
+    except Exception as outer_error:
+        logger.error(f"Error in search_on_debrid: {outer_error}")
         return False
 
 async def get_user_input():
