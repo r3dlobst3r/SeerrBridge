@@ -778,45 +778,34 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                 buttons = driver.find_elements(By.CSS_SELECTOR, button_selector)
                 logger.info(f"Found {len(buttons)} Instant RD buttons")
                 
-                if buttons:
-                    for button in buttons:
-                        try:
-                            # Verify button text contains "Instant RD"
-                            if "Instant RD" in button.text:
-                                # Get parent row for size info
-                                row = button.find_element(By.XPATH, "./ancestor::tr")
-                                size_cell = row.find_elements(By.TAG_NAME, "td")[1]
-                                logger.debug(f"Found torrent with size: {size_cell.text}")
-                                
-                                # Scroll into view
-                                driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                                time.sleep(1)
-                                
-                                # Click using JavaScript
-                                driver.execute_script("arguments[0].click();", button)
-                                logger.info("Clicked Instant RD button")
-                                
-                                # Wait for success indicator
-                                try:
-                                    WebDriverWait(driver, 5).until(
-                                        EC.presence_of_element_located((By.CSS_SELECTOR, "div.text-green-500"))
-                                    )
-                                    logger.success("Download initiated successfully")
-                                    return True
-                                except:
-                                    logger.warning("No success confirmation found, trying next button")
-                                    continue
-                                
-                        except Exception as e:
-                            logger.debug(f"Failed to process button: {str(e)}")
+                successful_downloads = 0
+                
+                for button in buttons:
+                    try:
+                        # Find the parent row using JavaScript instead of XPath
+                        row = driver.execute_script("return arguments[0].closest('tr')", button)
+                        if not row:
                             continue
-                    
+                            
+                        # Get text content using JavaScript to avoid stale element issues
+                        row_text = driver.execute_script("return arguments[0].textContent", row)
+                        
+                        # Process the row text and click button if it matches criteria
+                        if should_download_torrent(row_text):
+                            button.click()
+                            successful_downloads += 1
+                            time.sleep(1)  # Brief pause between clicks
+                            
+                    except Exception as e:
+                        logger.debug(f"Failed to process button: {str(e)}")
+                        continue
+
+                if successful_downloads == 0:
                     logger.warning("No successful downloads initiated")
                     return False
-                else:
-                    logger.warning("No Instant RD buttons found")
-                    return False
                     
+                return True
+                
             except Exception as e:
                 logger.error(f"Error finding/processing buttons: {str(e)}")
                 return False
