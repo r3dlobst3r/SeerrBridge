@@ -1266,44 +1266,53 @@ async def tv_webhook(request: Request):
     try:
         data = await request.json()
         tmdb_id = data.get('media', {}).get('tmdbId')
-        logger.info(f"Received TV show webhook for TMDB ID: {tmdb_id}")
+        logger.info(f"TV Webhook received - Processing TMDB ID: {tmdb_id}")
         
         # Get IMDB ID from TMDB
-        show_details = await get_tv_show_imdb_id(tmdb_id)
-        if not show_details or not show_details.get('imdb_id'):
-            logger.error(f"Failed to get IMDB ID for TMDB ID: {tmdb_id}")
-            return {"status": "error", "message": "Failed to get IMDB ID"}
-            
-        imdb_id = show_details['imdb_id']
-        show_title = show_details['title']
+        url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
+        logger.info(f"Fetching TV show details from TMDB API: {url}")
         
-        # Ensure IMDB ID has tt prefix
-        if not imdb_id.startswith('tt'):
-            imdb_id = f"tt{imdb_id}"
-            
-        logger.info(f"Found IMDB ID: {imdb_id} for show: {show_title}")
-        
-        # Construct the URL with IMDB ID
-        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
-        logger.info(f"Accessing TV show URL: {show_url}")
-        
-        driver.get(show_url)
-        
-        # Wait for page to load
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
-            )
-            logger.success(f"Successfully loaded page for {show_title}")
-            return {"status": "success"}
-            
-        except TimeoutException:
-            logger.error(f"Timeout waiting for TV show page to load: {show_title}")
-            return {"status": "error", "message": "Page load timeout"}
-            
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    imdb_id = data.get('external_ids', {}).get('imdb_id')
+                    show_title = data.get('name', '')
+                    
+                    if not imdb_id:
+                        logger.error(f"No IMDB ID found for show: {show_title}")
+                        return {"status": "error", "message": "No IMDB ID found"}
+                    
+                    # Ensure IMDB ID has tt prefix
+                    if not imdb_id.startswith('tt'):
+                        imdb_id = f"tt{imdb_id}"
+                    
+                    logger.info(f"Found show: {show_title} with IMDB ID: {imdb_id}")
+                    
+                    # Construct and navigate to DMM URL
+                    show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+                    logger.info(f"Navigating to DMM URL: {show_url}")
+                    
+                    driver.get(show_url)
+                    
+                    # Wait for page load
+                    try:
+                        WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
+                        )
+                        logger.success(f"Successfully loaded DMM page for {show_title}")
+                        return {"status": "success", "message": f"Processed {show_title}"}
+                        
+                    except TimeoutException:
+                        logger.error(f"Timeout waiting for DMM page to load: {show_url}")
+                        return {"status": "error", "message": "Page load timeout"}
+                else:
+                    logger.error(f"TMDB API request failed with status: {response.status}")
+                    return {"status": "error", "message": "TMDB API request failed"}
+                    
     except Exception as e:
-        logger.error(f"Error processing TV webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing TV webhook: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
     """Get IMDB ID for TV show from TMDB API"""
