@@ -1250,40 +1250,58 @@ async def get_user_input():
 
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
-async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
-    raw_payload = await request.json()
-    
+async def jellyseer_webhook(request: Request):
+    """Handle incoming webhooks from Jellyseerr/Overseerr"""
     try:
-        payload = WebhookPayload(**raw_payload)
+        payload = WebhookPayload(**await request.json())
         
-        if payload.media.media_type == "tv":
-            # Handle TV show request
-            tvdb_id = payload.media.tvdbId
-            if not tvdb_id:
-                logger.error("TVDB ID is missing in the TV show payload")
-                raise HTTPException(status_code=400, detail="TVDB ID is missing")
-                
-            # Get show details from TVDB API
-            show_details = get_show_details_from_tvdb(tvdb_id)
-            if not show_details:
-                logger.error("Failed to fetch show details from TVDB")
-                raise HTTPException(status_code=500, detail="Failed to fetch show details")
-                
-            # Process each season/episode
-            for season in show_details['seasons']:
-                for episode in season['episodes']:
-                    show_title = f"{show_details['title']} S{season['number']:02d}E{episode['number']:02d}"
-                    background_tasks.add_task(add_request_to_queue, show_title)
-                    
-            return {"status": "success", "show_title": show_details['title']}
-            
+        # Check if this is a TV show request
+        if payload.media.mediaType == "tv":
+            logger.info(f"Received TV show webhook for {payload.media.tmdbId}")
+            return await process_tv_request(payload)
         else:
-            # Existing movie handling code
+            # Handle movie requests with existing logic
+            logger.info(f"Received movie webhook for {payload.media.tmdbId}")
             return await process_movie_request(payload)
             
-    except ValidationError as e:
-        logger.error(f"Payload validation error: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_tv_request(payload: WebhookPayload):
+    """Process TV show requests using IMDB ID"""
+    try:
+        tmdb_id = payload.media.tmdbId
+        request_id = payload.request.request_id if hasattr(payload, 'request') else None
+        
+        # Get show details including IMDB ID
+        show_details = await get_show_details_from_tmdb(tmdb_id)
+        if not show_details or not show_details.get('imdb_id'):
+            logger.error(f"Failed to get IMDB ID for TMDB ID {tmdb_id}")
+            return {"status": "error", "message": "Failed to get IMDB ID"}
+            
+        imdb_id = show_details['imdb_id']
+        show_title = show_details['title']
+        
+        # Navigate directly to show page using IMDB ID
+        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+        logger.info(f"Navigating to TV show URL: {show_url}")
+        
+        driver.get(show_url)
+        
+        # Process the show page
+        if await process_tv_show_page(driver, show_title):
+            if request_id:
+                media_id = get_media_id_from_request(request_id)
+                if media_id and mark_completed(media_id, tmdb_id):
+                    logger.success(f"Successfully marked TV show {show_title} as available")
+                    return {"status": "success"}
+                    
+        return {"status": "error", "message": "Failed to process TV show"}
+        
+    except Exception as e:
+        logger.error(f"Error processing TV request: {e}")
+        return {"status": "error", "message": str(e)}
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
@@ -1425,73 +1443,6 @@ async def process_tv_episode(driver, title: str, season: int, episode: int) -> b
     except Exception as ex:
         logger.error(f"Error processing episode {title} S{season:02d}E{episode:02d}: {ex}")
         return False
-
-async def process_tv_request(payload: WebhookPayload):
-    """Process TV show requests separately from movies"""
-    try:
-        # Extract TMDB ID and request_id from the payload
-        tmdb_id = payload.media.tmdbId
-        request_id = payload.request.request_id if hasattr(payload, 'request') else None
-            
-        logger.info(f"Processing TV request for TMDB ID {tmdb_id} with request_id {request_id}")
-        
-        # Get show details from TMDB including IMDB ID
-        show_details = await get_show_details_from_tmdb(tmdb_id)
-        if not show_details or not show_details.get('imdb_id'):
-            logger.error(f"Failed to fetch show details or IMDB ID for TMDB ID {tmdb_id}")
-            return {"status": "error", "message": "Failed to fetch show details or IMDB ID"}
-
-        imdb_id = show_details['imdb_id']
-        show_title = f"{show_details['title']} ({show_details['year']})"
-        
-        logger.info(f"Processing TV show request: {show_title} (IMDB: {imdb_id})")
-        
-        try:
-            # Construct the direct show URL using IMDB ID
-            show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
-            logger.info(f"Navigating to show URL: {show_url}")
-            
-            driver.get(show_url)
-            
-            # Wait for the page to load
-            status_element = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
-            )
-            
-            # Check if any torrents are available
-            if "No results found" in status_element.text:
-                logger.warning(f"No results found for TV show: {show_title}")
-                return {"status": "error", "message": "No results found"}
-            
-            # Find and click Instant RD buttons
-            buttons = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.TAG_NAME, "button"))
-            )
-            
-            for button in buttons:
-                if "Instant RD" in button.text:
-                    button.click()
-                    logger.info(f"Clicked Instant RD button for TV show {show_title}")
-                    time.sleep(2)  # Wait for button state to update
-            
-            # Mark as completed in Overseerr if successful
-            if request_id:
-                media_id = get_media_id_from_request(request_id)
-                if media_id:
-                    if mark_completed(media_id, tmdb_id):
-                        logger.success(f"Successfully marked TV show {media_id} as completed in overseerr")
-                    else:
-                        logger.error(f"Failed to mark TV show {media_id} as completed in overseerr")
-            
-            return {"status": "success", "message": "TV show processed successfully"}
-                
-        except Exception as ex:
-            logger.error(f"Error processing TV show {show_title}: {ex}")
-            return {"status": "error", "message": str(ex)}
-                
-    except Exception as e:
-        logger.error(f"Error processing TV show request: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 async def get_show_details_from_tmdb(tmdb_id: int) -> Optional[dict]:
     """Fetch TV show details from TMDB API including IMDB ID"""
