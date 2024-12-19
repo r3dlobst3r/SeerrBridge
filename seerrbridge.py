@@ -671,19 +671,22 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
             logger.error("Request ID is required for marking TV shows as available")
             return False
             
-        request_url = f"{overseerr_url}/api/v1/request/{request_id}"
+        # Update the media request status
+        request_url = f"{overseerr_url}/api/v1/media-request/{request_id}"
         headers = {
             "X-Api-Key": overseerr_api_key,
             "Content-Type": "application/json"
         }
         
-        # Build the request payload according to the API docs
+        # Build the request payload
         request_data = {
-            "is4k": False,  # Add required fields
-            "status": 3,    # AVAILABLE
-            "mediaType": "tv",
-            "seasons": seasons if seasons else []
+            "is4k": False,
+            "status": "available",  # Try string instead of number
+            "mediaType": "tv"
         }
+        
+        if seasons:
+            request_data["seasons"] = seasons
             
         logger.debug(f"Sending PUT request to: {request_url}")
         logger.debug(f"With payload: {request_data}")
@@ -696,7 +699,25 @@ def mark_completed(media_id: int, tmdb_id: str, request_id: str = None, seasons:
         else:
             logger.error(f"Failed to mark request as available: {response.status_code}")
             logger.debug(f"Response content: {response.text}")
-            return False
+            
+            # Try alternate endpoint if first one fails
+            alt_request_url = f"{overseerr_url}/api/v1/request/{request_id}/status"
+            alt_request_data = {
+                "status": "available"
+            }
+            
+            logger.debug(f"Trying alternate endpoint: {alt_request_url}")
+            logger.debug(f"With payload: {alt_request_data}")
+            
+            alt_response = requests.post(alt_request_url, headers=headers, json=alt_request_data)
+            
+            if alt_response.status_code == 200:
+                logger.success(f"Successfully marked request {request_id} as available using alternate endpoint")
+                return True
+            else:
+                logger.error(f"Failed to mark request as available using alternate endpoint: {alt_response.status_code}")
+                logger.debug(f"Response content: {alt_response.text}")
+                return False
             
     except Exception as e:
         logger.error(f"Error marking request as available: {e}")
