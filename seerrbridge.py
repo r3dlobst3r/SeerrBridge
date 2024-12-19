@@ -786,14 +786,45 @@ def attempt_button_click_with_state_check(button, result_box):
 
 
 ### Search Function to Reuse Browser
+def get_imdb_id_from_tmdb(tmdb_id: str) -> Optional[str]:
+    """Fetch IMDB ID for a TV show from TMDB API"""
+    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}/external_ids"
+    params = {
+        "api_key": os.getenv('TMDB_API_KEY')
+    }
+    
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            imdb_id = data.get('imdb_id')
+            if imdb_id:
+                logger.info(f"Found IMDB ID {imdb_id} for TMDB ID {tmdb_id}")
+                return imdb_id
+            else:
+                logger.error(f"No IMDB ID found for TMDB ID {tmdb_id}")
+                return None
+        else:
+            logger.error(f"Failed to get external IDs from TMDB: {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Error fetching IMDB ID from TMDB: {e}")
+        return None
+
 def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None, tmdb_id: str = None) -> bool:
     """Search for content on Debrid Media Manager"""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv' and tmdb_id:
+            # Get IMDB ID from TMDB ID
+            imdb_id = get_imdb_id_from_tmdb(tmdb_id)
+            if not imdb_id:
+                logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
+                return False
+                
             # Navigate directly to the show page for the specific season
-            show_url = f"https://debridmediamanager.com/show/tt{tmdb_id}/{season}"
+            show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
             time.sleep(2)  # Wait for page to load
