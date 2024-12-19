@@ -431,15 +431,24 @@ async def shutdown_browser():
 
 ### Function to process requests from the queue
 async def process_requests():
-    while True:
-        movie_title = await request_queue.get()  # Wait for the next request in the queue
-        logger.info(f"Processing movie request: {movie_title}")
-        try:
-            await asyncio.to_thread(search_on_debrid, movie_title, driver)  # Process the request
-        except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
-        finally:
-            request_queue.task_done()  # Mark the request as done
+    """Process requests from Overseerr"""
+    try:
+        requests = await get_overseerr_media_requests()
+        if not requests:
+            return
+            
+        for request in requests:
+            media_type = request.get('media', {}).get('mediaType')
+            tmdb_id = request.get('media', {}).get('tmdbId')
+            
+            if media_type == "tv":
+                logger.info(f"Processing TV show request for TMDB ID: {tmdb_id}")
+                await tv_webhook(request)
+            elif media_type == "movie":
+                logger.info(f"Processing movie request for TMDB ID: {tmdb_id}")
+                await process_movie_request(WebhookPayload(**request))
+            else:
+                logger.warning(f"Unknown media type: {media_type} for TMDB ID: {tmdb_id}")
 
 ### Function to add requests to the queue
 async def add_request_to_queue(movie_title):
@@ -1262,11 +1271,15 @@ async def movie_webhook(request: Request):
 
 @app.post("/jellyseer-webhook/tv")
 async def tv_webhook(request: Request):
-    """Handle incoming webhooks for TV shows from Jellyseerr/Overseerr"""
+    """Handle TV show requests using IMDB ID"""
     try:
-        data = await request.json()
+        if isinstance(request, dict):
+            data = request  # If called internally
+        else:
+            data = await request.json()  # If called via webhook
+            
         tmdb_id = data.get('media', {}).get('tmdbId')
-        logger.info(f"TV Webhook received - Processing TMDB ID: {tmdb_id}")
+        logger.info(f"Processing TV show TMDB ID: {tmdb_id}")
         
         # Get IMDB ID from TMDB
         url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
@@ -1275,9 +1288,9 @@ async def tv_webhook(request: Request):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    imdb_id = data.get('external_ids', {}).get('imdb_id')
-                    show_title = data.get('name', '')
+                    show_data = await response.json()
+                    imdb_id = show_data.get('external_ids', {}).get('imdb_id')
+                    show_title = show_data.get('name', '')
                     
                     if not imdb_id:
                         logger.error(f"No IMDB ID found for show: {show_title}")
@@ -1294,24 +1307,13 @@ async def tv_webhook(request: Request):
                     logger.info(f"Navigating to DMM URL: {show_url}")
                     
                     driver.get(show_url)
-                    
-                    # Wait for page load
-                    try:
-                        WebDriverWait(driver, 10).until(
-                            EC.presence_of_element_located((By.XPATH, "//div[@role='status']"))
-                        )
-                        logger.success(f"Successfully loaded DMM page for {show_title}")
-                        return {"status": "success", "message": f"Processed {show_title}"}
-                        
-                    except TimeoutException:
-                        logger.error(f"Timeout waiting for DMM page to load: {show_url}")
-                        return {"status": "error", "message": "Page load timeout"}
+                    return {"status": "success", "message": f"Processing {show_title} with IMDB ID {imdb_id}"}
                 else:
                     logger.error(f"TMDB API request failed with status: {response.status}")
                     return {"status": "error", "message": "TMDB API request failed"}
                     
     except Exception as e:
-        logger.error(f"Error processing TV webhook: {str(e)}")
+        logger.error(f"Error processing TV show: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
