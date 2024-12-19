@@ -655,35 +655,41 @@ def get_media_id_from_request(request_id: str) -> Optional[int]:
         logger.error(f"Error getting request details: {e}")
         return None
 
-def mark_completed(media_id: int, tmdb_id: int) -> bool:
-    """Mark item as completed in overseerr"""
-    url = f"{OVERSEERR_API_BASE_URL}/media/{media_id}/available"
-    headers = {
-        "X-Api-Key": OVERSEERR_API_KEY,
-        "Content-Type": "application/json"
-    }
-    data = {"is4k": False}
-    
+def mark_completed(media_id: int, tmdb_id: str) -> bool:
+    """Mark a media request as available in Overseerr."""
     try:
-        response = requests.post(url, headers=headers, json=data)
-        response_data = response.json()  # Parse the JSON response
+        # Get media details from Overseerr
+        media_url = f"{OVERSEERR_URL}/api/v1/media/{media_id}"
+        headers = {"X-Api-Key": OVERSEERR_API_KEY}
+        
+        response = requests.get(media_url, headers=headers)
+        if response.status_code != 200:
+            logger.error(f"Failed to get media details from Overseerr: {response.status_code}")
+            return False
+            
+        media_data = response.json()
+        
+        # Convert both TMDb IDs to strings for comparison
+        media_tmdb_id = str(media_data.get('mediaInfo', {}).get('tmdbId', ''))
+        requested_tmdb_id = str(tmdb_id)
+        
+        if media_tmdb_id != requested_tmdb_id:
+            logger.error(f"TMDB ID mismatch for media {media_id}. Expected {requested_tmdb_id}, got {media_tmdb_id}")
+            return False
+            
+        # Mark as available
+        mark_url = f"{OVERSEERR_URL}/api/v1/media/{media_id}/available"
+        response = requests.post(mark_url, headers=headers)
         
         if response.status_code == 200:
-            # Verify that the response contains the correct tmdb_id
-            if response_data.get('tmdbId') == tmdb_id:
-                logger.info(f"Marked media {media_id} as completed in overseerr. Response: {response_data}")
-                return True
-            else:
-                logger.error(f"TMDB ID mismatch for media {media_id}. Expected {tmdb_id}, got {response_data.get('tmdbId')}")
-                return False
+            logger.success(f"Successfully marked media {media_id} as available")
+            return True
         else:
-            logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: Status code {response.status_code}, Response: {response_data}")
+            logger.error(f"Failed to mark media as available: {response.status_code}")
             return False
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to mark media as completed in overseerr with id {media_id}: {str(e)}")
-        return False
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to decode JSON response for media {media_id}: {str(e)}")
+            
+    except Exception as e:
+        logger.error(f"Error marking media as available: {e}")
         return False
 
 
