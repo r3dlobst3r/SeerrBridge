@@ -765,49 +765,57 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
                 logger.debug("Loading spinner disappeared")
             except:
                 logger.debug("No loading spinner found")
+            
+            # Wait for any content to load
+            time.sleep(2)
+            
+            # Get the page source and log it
+            page_source = driver.page_source
+            logger.debug(f"Page source snippet: {page_source[:500]}...")
+            
+            # Try to find any button with title "Instant RD"
+            try:
+                instant_buttons = WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "button[title='Instant RD']"))
+                )
+                logger.info(f"Found {len(instant_buttons)} Instant RD buttons")
                 
-            # Log the current page structure
-            logger.debug("Current page structure:")
-            main_content = driver.find_element(By.TAG_NAME, "main")
-            logger.debug(f"Main content HTML: {main_content.get_attribute('innerHTML')[:500]}...")
-            
-            # Try different selectors
-            selectors_to_try = [
-                "div.bg-gray-800",
-                "div.release-item",
-                "div[role='button']",
-                "button[title='Instant RD']",
-                "div.p-4"
-            ]
-            
-            for selector in selectors_to_try:
+                for button in instant_buttons:
+                    # Get the parent container text to check if it's complete
+                    parent = button.find_element(By.XPATH, "./ancestor::div[contains(@class, 'bg-gray-800')]")
+                    parent_text = parent.text.lower()
+                    logger.debug(f"Found button in container with text: {parent_text[:100]}...")
+                    
+                    if "complete" in parent_text:
+                        logger.info("Found complete release, clicking button")
+                        driver.execute_script("arguments[0].click();", button)
+                        time.sleep(1)
+                        return True
+                
+                logger.warning("No complete releases found with Instant RD buttons")
+                return False
+                
+            except Exception as e:
+                logger.error(f"Error finding Instant RD buttons: {str(e)}")
+                
+                # Try alternative approach - look for any clickable elements
                 try:
-                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    logger.debug(f"Found {len(elements)} elements with selector: {selector}")
-                    if elements:
-                        for element in elements:
-                            try:
-                                text = element.text
-                                logger.debug(f"Element text: {text[:100]}...")
-                                
-                                # If this element has an Instant RD button
-                                buttons = element.find_elements(By.CSS_SELECTOR, "button[title='Instant RD']")
-                                if buttons:
-                                    logger.info(f"Found Instant RD button in element with text: {text[:50]}...")
-                                    driver.execute_script("arguments[0].click();", buttons[0])
-                                    logger.success("Clicked Instant RD button")
-                                    time.sleep(1)
-                                    return True
-                            except Exception as e:
-                                logger.debug(f"Error processing element: {str(e)}")
-                                continue
-                except Exception as e:
-                    logger.debug(f"Error with selector {selector}: {str(e)}")
-                    continue
-            
-            # If we get here, we didn't find any suitable elements
-            logger.warning("No suitable elements found with any selector")
-            return False
+                    clickable = WebDriverWait(driver, 5).until(
+                        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "[role='button'], button"))
+                    )
+                    logger.debug(f"Found {len(clickable)} clickable elements")
+                    
+                    for element in clickable:
+                        try:
+                            element_text = element.get_attribute('title') or element.text
+                            logger.debug(f"Clickable element: {element_text}")
+                        except:
+                            pass
+                            
+                except Exception as e2:
+                    logger.error(f"Error finding clickable elements: {str(e2)}")
+                
+                return False
                 
         else:
             # Existing movie logic...
