@@ -747,9 +747,6 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv' and tmdb_id:
-            # Create logs directory if it doesn't exist
-            os.makedirs("/app/logs", exist_ok=True)
-            
             imdb_id = get_imdb_id_from_tmdb(tmdb_id)
             if not imdb_id:
                 logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
@@ -759,9 +756,6 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             logger.info(f"Navigating to show URL: {url}")
             driver.get(url)
             
-            # Take initial screenshot
-            driver.save_screenshot(f"/app/logs/initial_page_{season}.png")
-            
             # Wait for loading spinner to disappear
             WebDriverWait(driver, 10).until(
                 EC.invisibility_of_element_located((By.CLASS_NAME, "loading"))
@@ -770,41 +764,31 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
 
             # Wait for content to load
             time.sleep(3)
-            driver.save_screenshot(f"/app/logs/after_load_{season}.png")
 
-            try:
-                # Wait for and find the first Instant RD button
-                button = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Instant RD')]"))
-                )
-                
-                logger.info(f"Found button with text: {button.get_attribute('textContent')}")
-                driver.save_screenshot(f"/app/logs/found_button_{season}.png")
-                
-                # Scroll to button
-                driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                time.sleep(1)
-                driver.save_screenshot(f"/app/logs/after_scroll_{season}.png")
-                
-                # Try clicking with ActionChains
-                actions = ActionChains(driver)
-                actions.move_to_element(button)
-                actions.click()
-                actions.perform()
-                
-                driver.save_screenshot(f"/app/logs/after_click_{season}.png")
-                
-                # Wait to see if button state changes
-                time.sleep(2)
-                driver.save_screenshot(f"/app/logs/final_state_{season}.png")
-                
-                return True
-                
-            except Exception as e:
-                logger.error(f"Error clicking button: {e}")
-                driver.save_screenshot(f"/app/logs/error_{season}.png")
-                return False
+            # Find all buttons
+            buttons = driver.find_elements(By.CSS_SELECTOR, 
+                "button.border-2.border-green-500")
+            
+            logger.info(f"Found {len(buttons)} total buttons")
+            
+            # Only try the first button that contains "Instant RD"
+            for button in buttons:
+                try:
+                    button_text = button.get_attribute('textContent')
+                    logger.debug(f"Found button with text: {button_text}")
+                    
+                    if "Instant RD" in button_text:
+                        driver.execute_script("arguments[0].click();", button)
+                        logger.info(f"Clicked first Instant RD button for season {season}")
+                        return True
+                        
+                except Exception as e:
+                    logger.debug(f"Error processing button: {e}")
+                    continue
 
+            logger.warning(f"No Instant RD button found for season {season}")
+            return False
+                
         else:
             # Existing movie logic...
             pass
