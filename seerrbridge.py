@@ -786,80 +786,42 @@ def attempt_button_click_with_state_check(button, result_box):
 
 
 ### Search Function to Reuse Browser
-def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None) -> bool:
+def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int = None, tmdb_id: str = None) -> bool:
     """Search for content on Debrid Media Manager"""
     try:
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
-        if media_type == 'tv':
-            # Extract show name without season number
-            show_name = re.sub(r'S\d+.*$', '', title, flags=re.IGNORECASE).strip()
+        if media_type == 'tv' and tmdb_id:
+            # Navigate directly to the show page for the specific season
+            show_url = f"https://debridmediamanager.com/show/tt{tmdb_id}/{season}"
+            logger.info(f"Navigating to show URL: {show_url}")
+            driver.get(show_url)
+            time.sleep(2)  # Wait for page to load
             
-            # First search for the show
-            encoded_query = urllib.parse.quote(show_name)
-            search_url = f"https://debridmediamanager.com/search?query={encoded_query}"
-            
-            logger.info(f"Search URL: {search_url}")
-            driver.get(search_url)
-            logger.success(f"Navigated to search results page for {show_name}")
-            
-            # Wait for results to load
-            time.sleep(1.5)
-            
-            # Find and click the main show title
-            show_links = WebDriverWait(driver, 10).until(
-                EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".movie-title, .tv-title"))
-            )
-            
-            # Find the show link with the closest match
-            best_match = None
-            best_ratio = 0
-            
-            for link in show_links:
-                try:
-                    link_text = link.text.strip()
-                    ratio = fuzz.ratio(show_name.lower(), link_text.lower())
-                    logger.info(f"Comparing '{link_text}' with '{show_name}' (Match Ratio: {ratio})")
-                    
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_match = link
-                except Exception as e:
-                    logger.error(f"Error processing link: {e}")
-                    continue
-            
-            if best_match and best_ratio >= 85:
-                logger.info(f"Found show link: {best_match.text}")
-                best_match.click()
-                time.sleep(2)  # Wait for show page to load
-                
-                # Now find and click the specific season button
-                season_button = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.XPATH, f"//button[contains(text(), 'Season {season}')]"))
+            # Look for Complete releases with good quality
+            try:
+                # Wait for releases to load
+                releases = WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".release-item"))
                 )
-                logger.info(f"Clicking season {season} button")
-                season_button.click()
-                time.sleep(1)
                 
-                # Find the first complete version with good size
-                releases = driver.find_elements(By.CSS_SELECTOR, ".release-item")
                 for release in releases:
-                    try:
-                        if "Complete" in release.text and "GB" in release.text:
-                            logger.info(f"Found suitable release: {release.text}")
-                            # Click the Instant RD button for this release
-                            instant_rd = release.find_element(By.CSS_SELECTOR, "[title='Instant RD']")
-                            instant_rd.click()
-                            return True
-                    except Exception as e:
-                        logger.error(f"Error processing release: {e}")
-                        continue
-                
+                    release_text = release.text.lower()
+                    if "complete" in release_text and any(q in release_text for q in ["2160p", "1080p", "bluray"]):
+                        logger.info(f"Found suitable release: {release.text}")
+                        # Click the Instant RD button for this release
+                        instant_rd = release.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
+                        instant_rd.click()
+                        time.sleep(1)  # Wait for the click to register
+                        return True
+                        
                 logger.warning(f"No suitable release found for season {season}")
                 return False
-            else:
-                logger.error(f"No matching show found for {show_name}")
+                
+            except Exception as e:
+                logger.error(f"Error processing releases: {e}")
                 return False
+                
         else:
             # Existing movie search logic
             # ... (keep the existing movie search code here)
@@ -1025,7 +987,7 @@ async def process_tv_request(payload: WebhookPayload):
         for season in requested_seasons:
             try:
                 confirmation_flag = await asyncio.wait_for(
-                    asyncio.to_thread(search_on_debrid, show_title, driver, 'tv', season),
+                    asyncio.to_thread(search_on_debrid, show_title, driver, 'tv', season, series_id),
                     timeout=60.0
                 )
                 
