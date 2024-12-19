@@ -1311,10 +1311,13 @@ async def tv_webhook(request: Request):
     """Handle TV show requests using IMDB ID"""
     try:
         if isinstance(request, dict):
-            data = request  # If called internally
+            data = request
         else:
-            data = await request.json()  # If called via webhook
+            data = await request.json()
             
+        # Debug log the incoming request data
+        logger.info(f"Received webhook data: {data}")
+        
         tmdb_id = data.get('media', {}).get('tmdbId')
         logger.info(f"Processing TV show TMDB ID: {tmdb_id}")
         
