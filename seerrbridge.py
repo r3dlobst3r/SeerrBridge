@@ -438,17 +438,23 @@ async def process_requests():
             return
             
         for request in requests:
-            media_type = request.get('media', {}).get('mediaType')
-            tmdb_id = request.get('media', {}).get('tmdbId')
-            
-            if media_type == "tv":
-                logger.info(f"Processing TV show request for TMDB ID: {tmdb_id}")
-                await tv_webhook(request)
-            elif media_type == "movie":
-                logger.info(f"Processing movie request for TMDB ID: {tmdb_id}")
-                await process_movie_request(WebhookPayload(**request))
-            else:
-                logger.warning(f"Unknown media type: {media_type} for TMDB ID: {tmdb_id}")
+            try:
+                media_type = request.get('media', {}).get('mediaType')
+                tmdb_id = request.get('media', {}).get('tmdbId')
+                
+                if media_type == "tv":
+                    logger.info(f"Processing TV show request for TMDB ID: {tmdb_id}")
+                    await tv_webhook(request)
+                elif media_type == "movie":
+                    logger.info(f"Processing movie request for TMDB ID: {tmdb_id}")
+                    await process_movie_request(WebhookPayload(**request))
+                else:
+                    logger.warning(f"Unknown media type: {media_type} for TMDB ID: {tmdb_id}")
+            except Exception as e:
+                logger.error(f"Error processing request: {e}")
+                continue
+    except Exception as e:
+        logger.error(f"Error in process_requests: {e}")
 
 ### Function to add requests to the queue
 async def add_request_to_queue(movie_title):
@@ -1259,7 +1265,7 @@ async def get_user_input():
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/movie")
 async def movie_webhook(request: Request):
-    """Handle incoming webhooks for movies from Jellyseerr/Overseerr"""
+    """Handle movie requests"""
     try:
         data = await request.json()
         logger.info(f"Received movie webhook for TMDB ID: {data.get('media', {}).get('tmdbId')}")
