@@ -1453,14 +1453,22 @@ async def tv_webhook(request: Request):
 async def update_overseerr_status(request_data, status, message=None):
     """Update the status of a request in Overseerr"""
     try:
+        # Extract IDs from the request data
         request_id = request_data.get('id')
-        media_id = request_data.get('media', {}).get('id')
+        media_type = request_data.get('media', {}).get('mediaType', 'tv')
+        media_id = request_data.get('media', {}).get('id') or request_data.get('media', {}).get('tmdbId')
         
-        if not request_id or not media_id:
-            logger.error("Missing request_id or media_id for Overseerr status update")
+        logger.info(f"Updating Overseerr status - Request ID: {request_id}, Media ID: {media_id}, Status: {status}")
+        
+        if not media_id:
+            logger.error("Missing media_id for Overseerr status update")
             return
         
-        url = f"{OVERSEERR_URL}/api/v1/media/{media_id}"
+        # Construct the URL for the media update
+        url = f"{OVERSEERR_BASE}/api/v1/media/{media_id}"
+        if request_id:
+            url = f"{OVERSEERR_BASE}/api/v1/request/{request_id}"
+            
         headers = {"X-Api-Key": OVERSEERR_API_KEY}
         
         status_map = {
@@ -1471,15 +1479,21 @@ async def update_overseerr_status(request_data, status, message=None):
         
         data = {
             "status": status_map.get(status, 4),
-            "message": message
+            "mediaType": media_type
         }
+        
+        if message:
+            data["message"] = message
+            
+        logger.info(f"Sending update to Overseerr: URL={url}, Data={data}")
         
         async with aiohttp.ClientSession() as session:
             async with session.put(url, headers=headers, json=data) as response:
+                response_text = await response.text()
                 if response.status == 200:
                     logger.success(f"Updated Overseerr status to {status}")
                 else:
-                    logger.error(f"Failed to update Overseerr status. Status code: {response.status}")
+                    logger.error(f"Failed to update Overseerr status. Status code: {response.status}, Response: {response_text}")
                     
     except Exception as e:
         logger.error(f"Error updating Overseerr status: {e}")
@@ -1589,7 +1603,6 @@ async def search_tv_show(title: str, season: int, episode: int, driver) -> bool:
         # Wait for search input and enter show title
         search_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
-        )
         search_input.clear()
         search_input.send_keys(title)
         search_input.send_keys(Keys.RETURN)
