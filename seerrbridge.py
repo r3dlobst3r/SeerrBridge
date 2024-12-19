@@ -1250,40 +1250,75 @@ async def get_user_input():
 
 ### Webhook Endpoint ###
 @app.post("/jellyseer-webhook/")
-async def jellyseer_webhook(request: Request, background_tasks: BackgroundTasks):
-    raw_payload = await request.json()
+async def jellyseer_webhook(request: Request):
+    """Handle incoming webhooks from Jellyseerr/Overseerr"""
+    try:
+        data = await request.json()
+        
+        # First check if it's a TV show
+        if data.get('media', {}).get('mediaType') == "tv":
+            logger.info(f"Received TV show webhook - routing to TV handler")
+            return await handle_tv_request(data)
+            
+        # If not TV, use existing movie logic unchanged
+        payload = WebhookPayload(**data)
+        return await process_movie_request(payload)
+            
+    except Exception as e:
+        logger.error(f"Error processing webhook: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def handle_tv_request(data: dict):
+    """Completely separate handler for TV shows"""
+    try:
+        tmdb_id = data['media']['tmdbId']
+        logger.info(f"Processing TV show with TMDB ID: {tmdb_id}")
+        
+        # Get IMDB ID from TMDB
+        show_details = await get_tv_show_imdb_id(tmdb_id)
+        if not show_details:
+            return {"status": "error", "message": "Failed to get show details"}
+            
+        imdb_id = show_details['imdb_id']
+        show_url = f"https://debridmediamanager.com/show/{imdb_id}/1"
+        
+        logger.info(f"Accessing TV show page: {show_url}")
+        driver.get(show_url)
+        
+        # Handle the TV show page
+        await process_tv_show_page(driver)
+        
+        return {"status": "success"}
+        
+    except Exception as e:
+        logger.error(f"Error in TV show handler: {e}")
+        return {"status": "error", "message": str(e)}
+
+async def get_tv_show_imdb_id(tmdb_id: int) -> Optional[dict]:
+    """Get IMDB ID for TV show"""
+    url = f"https://api.themoviedb.org/3/tv/{tmdb_id}?api_key={TMDB_API_KEY}&append_to_response=external_ids"
     
     try:
-        payload = WebhookPayload(**raw_payload)
-        
-        if payload.media.media_type == "tv":
-            # Handle TV show request
-            tvdb_id = payload.media.tvdbId
-            if not tvdb_id:
-                logger.error("TVDB ID is missing in the TV show payload")
-                raise HTTPException(status_code=400, detail="TVDB ID is missing")
-                
-            # Get show details from TVDB API
-            show_details = get_show_details_from_tvdb(tvdb_id)
-            if not show_details:
-                logger.error("Failed to fetch show details from TVDB")
-                raise HTTPException(status_code=500, detail="Failed to fetch show details")
-                
-            # Process each season/episode
-            for season in show_details['seasons']:
-                for episode in season['episodes']:
-                    show_title = f"{show_details['title']} S{season['number']:02d}E{episode['number']:02d}"
-                    background_tasks.add_task(add_request_to_queue, show_title)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    imdb_id = data.get('external_ids', {}).get('imdb_id')
+                    if not imdb_id:
+                        logger.error("No IMDB ID found")
+                        return None
                     
-            return {"status": "success", "show_title": show_details['title']}
-            
-        else:
-            # Existing movie handling code
-            return await process_movie_request(payload)
-            
-    except ValidationError as e:
-        logger.error(f"Payload validation error: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
+                    return {
+                        "imdb_id": imdb_id,
+                        "title": data['name']
+                    }
+                    
+        logger.error("Failed to get TV show details from TMDB")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error fetching TV show details: {e}")
+        return None
 
 def schedule_token_refresh():
     """Schedule the token refresh every 10 minutes."""
