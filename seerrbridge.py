@@ -582,56 +582,53 @@ def get_movie_details_from_tmdb(tmdb_id: str) -> Optional[dict]:
 
 async def process_movie_request(payload: WebhookPayload):
     try:
-        # Extract TMDB ID and request_id from the payload
         tmdb_id = payload.media.tmdbId
-        request_id = payload.request.request_id if hasattr(payload, 'request') else None
+        request_id = payload.request.request_id
+        media_id = get_media_id_from_request(request_id)
             
         logger.info(f"Processing request for TMDB ID {tmdb_id} with request_id {request_id}")
         
-        # Get movie details from TMDB using the synchronous function
+        # Get movie details from TMDB
         movie_details = get_movie_details_from_tmdb(tmdb_id)
         if not movie_details:
             logger.error(f"Failed to fetch movie details for TMDB ID {tmdb_id}")
             return {"status": "error", "message": "Failed to fetch movie details"}
 
-        # Format movie title with year
         movie_title = f"{movie_details['title']} ({movie_details['year']})"
         logger.info(f"Processing movie request: {movie_title}")
         
+        # Search and process on debrid
         try:
-            # Add timeout handling for search_on_debrid
             confirmation_flag = await asyncio.wait_for(
-                asyncio.to_thread(search_on_debrid, movie_title, driver),
-                timeout=60.0  # 60 second timeout
+                asyncio.to_thread(search_on_debrid, movie_title, driver, 'movie'),
+                timeout=60.0
             )
             
-            if confirmation_flag and request_id:
-                # Get the media_id using the request_id
-                media_id = get_media_id_from_request(request_id)
-                if media_id:
-                    if mark_completed(media_id, tmdb_id):
-                        logger.success(f"Successfully marked media {media_id} as completed in overseerr")
-                    else:
-                        logger.error(f"Failed to mark media {media_id} as completed in overseerr")
+            if confirmation_flag:
+                # Only try to mark as completed if the search was successful
+                if media_id and mark_completed(media_id, tmdb_id, request_id):
+                    logger.success(f"Successfully marked movie {media_id} as completed in overseerr")
                 else:
-                    logger.error(f"Could not find media_id for request_id {request_id}")
+                    logger.error(f"Failed to mark movie {media_id} as completed in overseerr")
+                    
+                return {
+                    "status": "success",
+                    "tmdb_id": tmdb_id,
+                    "request_id": request_id,
+                    "title": movie_title
+                }
             else:
-                logger.warning(f"Request {request_id} was not properly confirmed. Skipping marking as completed.")
+                logger.warning(f"Search failed for movie: {movie_title}")
+                return {
+                    "status": "error",
+                    "message": "Search failed",
+                    "title": movie_title
+                }
                 
         except asyncio.TimeoutError:
-            logger.error(f"Timeout while processing movie request {movie_title}")
-            return {"status": "error", "message": "Request processing timed out"}
-        except Exception as ex:
-            logger.critical(f"Error processing movie request {movie_title}: {ex}")
-                
-        return {
-            "status": "success", 
-            "tmdb_id": tmdb_id,
-            "request_id": request_id,
-            "title": movie_title,
-            "message": "Request processed"
-        }
-        
+            logger.error(f"Timeout while processing movie: {movie_title}")
+            return {"status": "error", "message": "Processing timeout"}
+            
     except Exception as e:
         logger.error(f"Error processing movie request: {e}")
         raise HTTPException(status_code=500, detail=str(e))
