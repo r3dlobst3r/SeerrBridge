@@ -1603,6 +1603,7 @@ async def search_tv_show(title: str, season: int, episode: int, driver) -> bool:
         # Wait for search input and enter show title
         search_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, "//input[@type='search']"))
+        )
         search_input.clear()
         search_input.send_keys(title)
         search_input.send_keys(Keys.RETURN)
