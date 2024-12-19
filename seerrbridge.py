@@ -521,7 +521,7 @@ def normalize_title(title, target_lang='en'):
     # Replace ellipsis with three periods
     title = title.replace('…', '...')
     # Replace smart apostrophes with regular apostrophes
-    title = title.replace('' ', "'")
+    title = title.replace("' ", "'")
     # Further normalization can be added here if required
     return title.strip()
     # Translate the title to the target language
