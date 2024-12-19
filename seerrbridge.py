@@ -689,28 +689,98 @@ def mark_completed(media_id: int, tmdb_id: int) -> bool:
 def prioritize_buttons_in_box(result_box):
     """
     Prioritize buttons within a result box. Clicks the 'Instant RD' or 'DL with RD' button
-    if available.
+    if available. Handles stale element references by retrying the operation once.
+
+    Args:
+        result_box (WebElement): The result box element.
+
+    Returns:
+        bool: True if a button was successfully clicked and handled, False otherwise.
     """
     try:
-        # First try to find and click 'Instant RD' button
-        instant_rd_buttons = result_box.find_elements(By.CSS_SELECTOR, "button[title='Instant RD']")
-        if instant_rd_buttons:
-            instant_rd_buttons[0].click()
-            time.sleep(1)  # Wait for click to register
+        # Attempt to locate the 'Instant RD' button
+        instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
+        logger.info("Located 'Instant RD' button.")
+
+        # Attempt to click the button and wait for a state change
+        if attempt_button_click_with_state_check(instant_rd_button, result_box):
             return True
-            
-        # If no 'Instant RD' button, try 'DL with RD' button
-        dl_buttons = result_box.find_elements(By.CSS_SELECTOR, "button[title='DL with RD']")
-        if dl_buttons:
-            dl_buttons[0].click()
-            time.sleep(1)  # Wait for click to register
+
+    except NoSuchElementException:
+        logger.info("'Instant RD' button not found. Checking for 'DL with RD' button.")
+
+    except StaleElementReferenceException:
+        logger.warning("Stale element reference encountered for 'Instant RD' button. Retrying...")
+        # Retry once by re-locating the button
+        try:
+            instant_rd_button = result_box.find_element(By.XPATH, ".//button[contains(@class, 'bg-green-900/30')]")
+            if attempt_button_click_with_state_check(instant_rd_button, result_box):
+                return True
+        except Exception as e:
+            logger.error(f"Retry failed for 'Instant RD' button due to: {e}")
+
+    try:
+        # If the 'Instant RD' button is not found, try to locate the 'DL with RD' button
+        dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+        logger.info("Located 'DL with RD' button.")
+
+        # Attempt to click the button and wait for a state change
+        if attempt_button_click_with_state_check(dl_with_rd_button, result_box):
             return True
-            
-        return False
-        
+
+    except NoSuchElementException:
+        logger.warning("Neither 'Instant RD' nor 'DL with RD' button found in this box.")
+
+    except StaleElementReferenceException:
+        logger.warning("Stale element reference encountered for 'DL with RD' button. Retrying...")
+        # Retry once by re-locating the button
+        try:
+            dl_with_rd_button = result_box.find_element(By.XPATH, ".//button[contains(text(), 'DL with RD')]")
+            if attempt_button_click_with_state_check(dl_with_rd_button, result_box):
+                return True
+        except Exception as e:
+            logger.error(f"Retry failed for 'DL with RD' button due to: {e}")
+
     except Exception as e:
-        logger.error(f"Error in prioritize_buttons_in_box: {e}")
-        return False
+        logger.error(f"An unexpected error occurred while prioritizing buttons: {e}")
+
+    return False
+
+
+def attempt_button_click_with_state_check(button, result_box):
+    """
+    Attempts to click a button and waits for its state to change.
+
+    Args:
+        button (WebElement): The button element to click.
+        result_box (WebElement): The parent result box (used for context).
+
+    Returns:
+        bool: True if the button's state changes, False otherwise.
+    """
+    try:
+        # Get the initial state of the button
+        initial_state = button.get_attribute("class")  # Or another attribute relevant to the state
+        logger.info(f"Initial button state: {initial_state}")
+
+        # Click the button
+        button.click()
+        logger.info("Clicked the button.")
+
+        # Wait for a short period (max 2 seconds) to check for changes in the state
+        WebDriverWait(result_box, 2).until(
+            lambda driver: button.get_attribute("class") != initial_state
+        )
+        logger.info("Button state changed successfully after clicking.")
+        return True  # Button was successfully clicked and handled
+
+    except TimeoutException:
+        logger.warning("No state change detected after clicking the button within 2 seconds.")
+
+    except StaleElementReferenceException:
+        logger.error("Stale element reference encountered while waiting for button state change.")
+
+    return False
 
 
 
@@ -757,46 +827,30 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             show_url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {show_url}")
             driver.get(show_url)
-            time.sleep(3)  # Increased wait time for page load
+            time.sleep(2)  # Wait for page to load
             
+            # Look for Complete releases with good quality
             try:
-                # Wait for and find all release boxes
-                logger.info("Looking for release boxes...")
-                release_boxes = WebDriverWait(driver, 10).until(
-                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.bg-gray-800.rounded-lg.p-4.mb-4"))
+                # Wait for releases to load
+                releases = WebDriverWait(driver, 10).until(
+                    EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".release-item"))
                 )
-                logger.info(f"Found {len(release_boxes)} release boxes")
                 
-                for box in release_boxes:
-                    try:
-                        # Get the title text
-                        title_element = box.find_element(By.CSS_SELECTOR, "div.text-lg.font-bold")
-                        title_text = title_element.text
-                        logger.info(f"Processing release: {title_text}")
+                for release in releases:
+                    release_text = release.text.lower()
+                    if "complete" in release_text and any(q in release_text for q in ["2160p", "1080p", "bluray"]):
+                        logger.info(f"Found suitable release: {release.text}")
+                        # Click the Instant RD button for this release
+                        instant_rd = release.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
+                        instant_rd.click()
+                        time.sleep(1)  # Wait for the click to register
+                        return True
                         
-                        # Look for Complete and quality indicators
-                        if "Complete" in title_text and any(q in title_text for q in ["2160p", "1080p", "BluRay"]):
-                            logger.info(f"Found suitable release: {title_text}")
-                            
-                            # Try to find the Instant RD button
-                            instant_rd = box.find_element(By.CSS_SELECTOR, "button[title='Instant RD']")
-                            logger.info("Found Instant RD button")
-                            
-                            # Click the button
-                            instant_rd.click()
-                            logger.success(f"Clicked Instant RD for: {title_text}")
-                            time.sleep(1)
-                            return True
-                            
-                    except Exception as e:
-                        logger.error(f"Error processing box: {str(e)}")
-                        continue
-                
                 logger.warning(f"No suitable release found for season {season}")
                 return False
                 
             except Exception as e:
-                logger.error(f"Error finding release boxes: {str(e)}")
+                logger.error(f"Error processing releases: {e}")
                 return False
                 
         else:
@@ -805,7 +859,7 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             pass
             
     except Exception as e:
-        logger.error(f"Error in search_on_debrid: {str(e)}")
+        logger.error(f"Error in search_on_debrid: {e}")
         return False
 
 async def get_user_input():
