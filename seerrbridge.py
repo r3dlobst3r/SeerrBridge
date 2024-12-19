@@ -746,6 +746,9 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
         logger.info(f"Starting Selenium automation for {media_type}: {title}")
         
         if media_type == 'tv' and tmdb_id:
+            # Enable browser logging
+            driver.get_log('browser')
+            
             imdb_id = get_imdb_id_from_tmdb(tmdb_id)
             if not imdb_id:
                 logger.error(f"Could not find IMDB ID for TMDB ID {tmdb_id}")
@@ -754,6 +757,9 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             url = f"https://debridmediamanager.com/show/{imdb_id}/{season}"
             logger.info(f"Navigating to show URL: {url}")
             driver.get(url)
+            
+            # Take screenshot before any actions
+            driver.save_screenshot(f"/app/logs/before_click_{season}.png")
             
             # Wait for loading spinner to disappear
             WebDriverWait(driver, 10).until(
@@ -764,53 +770,55 @@ def search_on_debrid(title: str, driver, media_type: str = 'movie', season: int 
             # Wait for content to load
             time.sleep(3)
 
-            successful_clicks = 0
-            while True:
+            # Find the first Instant RD button
+            buttons = driver.find_elements(By.CSS_SELECTOR, 
+                "button.border-2.border-green-500")
+            
+            logger.info(f"Found {len(buttons)} total buttons")
+            
+            for button in buttons:
                 try:
-                    # Find all divs containing buttons
-                    button_containers = driver.find_elements(By.CSS_SELECTOR, 
-                        "div.space-y-2.p-1")
+                    button_text = button.get_attribute('textContent')
+                    logger.debug(f"Found button with text: {button_text}")
                     
-                    if not button_containers:
-                        break
+                    if "Instant RD" in button_text:
+                        # Take screenshot before click
+                        driver.save_screenshot(f"/app/logs/before_click_button_{season}.png")
                         
-                    found_instant_button = False
-                    for container in button_containers:
+                        # Try to scroll the button into view
+                        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                        time.sleep(1)
+                        
+                        # Take screenshot after scroll
+                        driver.save_screenshot(f"/app/logs/after_scroll_{season}.png")
+                        
+                        # Click using different methods
                         try:
-                            # Look for an Instant RD button that hasn't been clicked yet
-                            buttons = container.find_elements(By.CSS_SELECTOR, 
-                                "button.border-2.border-green-500")
-                            
-                            for button in buttons:
-                                if "Instant RD" in button.get_attribute('textContent'):
-                                    # Check if this item has already been processed
-                                    if "RD (100%)" not in container.text:
-                                        found_instant_button = True
-                                        driver.execute_script("arguments[0].click();", button)
-                                        successful_clicks += 1
-                                        logger.debug(f"Successfully clicked download {successful_clicks}")
-                                        time.sleep(1)  # Wait between clicks
-                                        break
-                            
-                            if found_instant_button:
-                                break
-                                
+                            button.click()
                         except Exception as e:
-                            logger.debug(f"Error processing container: {e}")
-                            continue
-                            
-                    if not found_instant_button:
-                        break
+                            logger.debug(f"Regular click failed: {e}")
+                            try:
+                                driver.execute_script("arguments[0].click();", button)
+                            except Exception as e:
+                                logger.debug(f"JavaScript click failed: {e}")
+                                continue
+                        
+                        # Take screenshot after click
+                        driver.save_screenshot(f"/app/logs/after_click_{season}.png")
+                        
+                        # Log any browser console messages
+                        logs = driver.get_log('browser')
+                        for log in logs:
+                            logger.debug(f"Browser log: {log}")
+                        
+                        return True
                         
                 except Exception as e:
-                    logger.debug(f"Error in main loop: {e}")
-                    break
+                    logger.debug(f"Error processing button: {e}")
+                    continue
 
-            if successful_clicks == 0:
-                logger.warning("No successful downloads initiated")
-                return False
-
-            return True
+            logger.warning("No Instant RD button found")
+            return False
                 
         else:
             # Existing movie logic...
